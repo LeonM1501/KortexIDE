@@ -964,25 +964,6 @@ function updatePinnedPlanWidget(planItem) {
     header?.addEventListener('click', () => {
       c.classList.toggle('collapsed');
     });
-
-    c.querySelectorAll('.plan-step-row').forEach(row => {
-      row.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const stepId = Number(row.dataset.stepId);
-        const isDone = row.classList.toggle('is-done');
-        const cb = row.querySelector('.plan-checkbox');
-        if (cb) {
-          cb.classList.toggle('checked', isDone);
-          cb.innerHTML = isDone ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : '';
-        }
-
-        const step = planItem.steps.find(s => Number(s.id) === stepId);
-        if (step) step.done = isDone;
-
-        saveActiveSession();
-        updatePinnedPlanWidget(planItem);
-      });
-    });
   });
 }
 
@@ -1018,29 +999,6 @@ function createPlanCard(item) {
   // Toggle Collapse
   card.querySelector('.plan-card-header').addEventListener('click', () => {
     card.classList.toggle('collapsed');
-  });
-
-  // Interactive toggle on step click
-  card.querySelectorAll('.plan-step-row').forEach(row => {
-    row.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const stepId = Number(row.dataset.stepId);
-      const isDone = row.classList.toggle('is-done');
-      const cb = row.querySelector('.plan-checkbox');
-      cb.classList.toggle('checked', isDone);
-      cb.innerHTML = isDone ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : '';
-
-      if (item.steps) {
-        const step = item.steps.find(s => Number(s.id) === stepId);
-        if (step) step.done = isDone;
-      }
-      const newDoneCount = item.steps.filter(s => s.done).length;
-      const countLabel = card.querySelector('.plan-count-label');
-      if (countLabel) countLabel.textContent = `${newDoneCount} von ${item.steps.length} Aufgaben erledigt`;
-
-      saveActiveSession();
-      updatePinnedPlanWidget(item);
-    });
   });
 
   updatePinnedPlanWidget(item);
