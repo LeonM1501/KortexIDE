@@ -266,8 +266,9 @@ function layoutViews() {
 function injectAgentScript() {
   if (!chatView || chatView.webContents.isDestroyed()) return Promise.resolve(false);
   const parserScript = fs.readFileSync(path.join(__dirname, 'agent', 'tool-call-parser.js'), 'utf8');
+  const responseTrackerScript = fs.readFileSync(path.join(__dirname, 'agent', 'response-tracker.js'), 'utf8');
   const agentScript = fs.readFileSync(path.join(__dirname, 'agent', 'agent-inject.js'), 'utf8');
-  return chatView.webContents.executeJavaScript(`${parserScript}\n${agentScript}`)
+  return chatView.webContents.executeJavaScript(`${parserScript}\n${responseTrackerScript}\n${agentScript}`)
     .then(() => {
       chatViewReady = true;
       // Fire all queued tasks in order. A single overwritten pending promise

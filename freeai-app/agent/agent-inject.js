@@ -10,7 +10,9 @@
 
   const bridge = window.__freeaiBridge;
   const toolParser = window.__kortexToolCallParser;
+  const responseTracker = window.__kortexResponseTracker;
   if (!toolParser) throw new Error('Kortex tool-call parser was not injected.');
+  if (!responseTracker) throw new Error('Kortex response tracker was not injected.');
   function emit(type, payload) {
     try { bridge && bridge.sendEvent({ type, payload, ts: Date.now() }); } catch {}
   }
@@ -47,7 +49,7 @@
     retryLimit: 3,
     startTime: 0,
     lastPrompt: '',
-    awaitingAssistantCount: 0,
+    awaitingAssistant: null,
     conversationOnly: false
   };
 
@@ -108,9 +110,7 @@
     return Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
   }
 
-  function getTurnText(turn) {
-    return turn ? (turn.innerText || turn.textContent || '') : '';
-  }
+  const getTurnText = responseTracker.getTurnText;
 
   function hasErrorOrInterruption(turn) {
     const errorPattern = /Verbindung unterbrochen|There was an error generating|There was an error|Network error|Fehler bei der Generierung|Generation stopped/i;
@@ -119,8 +119,12 @@
       .some(node => errorPattern.test(getTurnText(node)));
   }
 
-  function isStreaming() {
-    return Boolean(getStopBtn() || Array.from(document.querySelectorAll('.result-streaming, [data-is-streaming="true"], [aria-busy="true"]')).some(isVisible));
+  function isStreaming(turn = null) {
+    if (getStopBtn()) return true;
+    const scope = turn || getAssistantTurns().at(-1);
+    if (!scope) return false;
+    if (scope.matches?.('.result-streaming, [data-is-streaming="true"], [aria-busy="true"]') && isVisible(scope)) return true;
+    return Array.from(scope.querySelectorAll?.('.result-streaming, [data-is-streaming="true"]') || []).some(isVisible);
   }
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -137,7 +141,7 @@
 
     // Remove tool_call or json code blocks with tool payload
     text = text.replace(/```(?:json|tool_call)?\s*([\s\S]*?)\s*```/gi, (block, body) => {
-      return tryParse(body) ? '' : block;
+      return toolParser.tryParse(body) ? '' : block;
     });
 
     // Cut at tool_call keyword
@@ -240,8 +244,8 @@
 
   async function submitPrompt(text, maxRetries = 3) {
     AGENT_STATE.lastPrompt = text;
-    const initialCount = getAssistantTurns().length;
-    AGENT_STATE.awaitingAssistantCount = initialCount;
+    const initialAssistant = responseTracker.capture(getAssistantTurns());
+    AGENT_STATE.awaitingAssistant = initialAssistant;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       if (!AGENT_STATE.running) return false;
@@ -259,7 +263,7 @@
       // Verify that send actually started
       for (let check = 0; check < 15; check++) {
         await sleep(200);
-        if (isStreaming() || getAssistantTurns().length > initialCount) {
+        if (isStreaming() || responseTracker.findNewTurn(initialAssistant, getAssistantTurns())) {
           return true;
         }
       }
@@ -268,12 +272,12 @@
       await sleep(400);
     }
 
-    return isStreaming() || getAssistantTurns().length > initialCount;
+    return isStreaming() || Boolean(responseTracker.findNewTurn(initialAssistant, getAssistantTurns()));
   }
 
   // ── Stable Response Watcher with Auto-Resend Watchdog ──
   async function waitForAssistantResponseStable() {
-    const expectedCount = AGENT_STATE.awaitingAssistantCount;
+    const expectedAssistant = AGENT_STATE.awaitingAssistant || responseTracker.capture([]);
     const startedAt = Date.now();
     let lastText = '';
     let lastProgressAt = Date.now();
@@ -283,9 +287,10 @@
 
     while (AGENT_STATE.running) {
       const turns = getAssistantTurns();
+      const newTurn = responseTracker.findNewTurn(expectedAssistant, turns);
 
       // If no new turn appeared after 7 seconds, auto-resubmit the prompt
-      if (turns.length <= expectedCount && !isStreaming()) {
+      if (!newTurn && !isStreaming()) {
         if (!autoResent && Date.now() - startedAt > AGENT_STATE.submitTimeoutMs) {
           autoResent = true;
           console.log('[Kortex Agent] Keine Antwort gestartet — sende Prompt erneut...');
@@ -293,8 +298,8 @@
         }
       }
 
-      if (turns.length > expectedCount) {
-        const turn = turns[turns.length - 1];
+      if (newTurn) {
+        const turn = newTurn;
         if (turn !== observedTurn) {
           observedTurn = turn;
           turnAppearedAt = Date.now();
@@ -308,11 +313,11 @@
           const thought = extractThought(text);
           const clean = extractCleanText(text);
           if (thought) emit('agent:thought', { thought, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
-          if (clean) emit('agent:text-chunk', { text: clean, isComplete: !isStreaming() });
+          if (clean) emit('agent:text-chunk', { text: clean, isComplete: !isStreaming(turn) });
         }
 
         if (hasErrorOrInterruption(turn)) return { turn, error: true };
-        if (isStreaming()) {
+        if (isStreaming(turn)) {
           // Stall watchdog: If no new token received for stallTimeoutMs (15s)
           if (Date.now() - lastProgressAt > AGENT_STATE.stallTimeoutMs) {
             return { turn, timeout: true };
@@ -347,6 +352,17 @@
     return submitPrompt(AGENT_STATE.lastPrompt);
   }
 
+  function scheduleRunLoop(retryAttempt = 0, delayMs = 500) {
+    _syncLoopTimer(setTimeout(() => {
+      runLoopStable(retryAttempt).catch(error => {
+        console.error('[Kortex Agent] Agent loop failed:', error);
+        AGENT_STATE.running = false;
+        if (window.__kortexAgentState) window.__kortexAgentState.running = false;
+        emit('agent:error', { message: `Agent-Schleife abgebrochen: ${error.message || error}` });
+      });
+    }, delayMs));
+  }
+
   // ── Unified ReAct Agent Loop ──────────────────────────
   async function runLoopStable(retryAttempt = 0) {
     if (!AGENT_STATE.running) return;
@@ -363,7 +379,7 @@
     if (response.error || response.timeout) {
       const reason = response.error ? 'ChatGPT meldet eine unterbrochene Verbindung' : 'Antwort hat zu lange pausiert (Timeout)';
       if (await retryCurrentPrompt(reason, retryAttempt)) {
-        _syncLoopTimer(setTimeout(() => runLoopStable(retryAttempt + 1), 600));
+        scheduleRunLoop(retryAttempt + 1, 600);
       } else {
         emit('agent:error', { message: `${reason}. Der Agent wurde angehalten.` });
         AGENT_STATE.running = false;
@@ -414,7 +430,7 @@
         await submitPrompt('[KORTEX IDE SYSTEM] Bitte führe den nächsten Schritt als JSON-Tool-Befehl aus oder beende mit task_completed.');
       }
       AGENT_STATE.step++;
-      _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
+      scheduleRunLoop();
       return;
     }
 
@@ -429,7 +445,7 @@
       if (!AGENT_STATE.running || userAnswer === null) return;
       await submitPrompt(`[TOOL RESULT for ask_question]\nAntwort des Benutzers: ${JSON.stringify(userAnswer)}\nFahre direkt mit dem nächsten Schritt fort.`);
       AGENT_STATE.step++;
-      _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
+      scheduleRunLoop();
       return;
     }
 
@@ -438,7 +454,7 @@
       emit('agent:status', { message: `Korrektur: Schritt 1 muss list_files sein — leite um (statt ${toolCall.tool}).`, level: 'warning' });
       await submitPrompt(`[KORTEX IDE SYSTEM-KORREKTUR] FEHLER: Dein Schritt 1 war { "tool": "${toolCall.tool}" } — aber bei "Analysiere das Projekt" ist Schritt 1 ZWINGEND list_files!\nFühre JETZT korrekt aus (1 Satz + 1 JSON):\n\`\`\`json\n{ "tool": "list_files", "parameters": { "maxDepth": 5 } }\n\`\`\``);
       AGENT_STATE.step++;
-      _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
+      scheduleRunLoop();
       return;
     }
 
@@ -455,7 +471,7 @@
 
     await submitPrompt(`[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen. Führe nun genau den nächsten EINZELNEN Schritt aus (1 Satz lautes Denken + genau 1 JSON-Tool-Block, oder schließe mit task_completed ab).`);
     AGENT_STATE.step++;
-    _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
+    scheduleRunLoop();
   }
 
   // ── Tool Result Handshake (window-persisted so re-inject does not lose pending resolver) ──
@@ -600,7 +616,7 @@ ${task}
         emit('agent:error', { message: 'Die Anfrage konnte nicht an ChatGPT übermittelt werden.' });
         return;
       }
-      _syncLoopTimer(setTimeout(() => runLoopStable(0), 600));
+      scheduleRunLoop(0, 600);
     }).catch((error) => {
       AGENT_STATE.running = false;
       window.__kortexAgentState.running = false;
