@@ -18,7 +18,8 @@ let bridgePort = null;
 const IGNORED_PATTERNS = [
   'node_modules', '.git', '.next', '.nuxt', 'dist', 'build',
   'coverage', '.gemini', '.agents', '__pycache__', '.venv', 'venv',
-  '.DS_Store', 'Thumbs.db'
+  '.DS_Store', 'Thumbs.db', 'dist-installer', 'release', 'win-unpacked', 'locales',
+  'Bilder', 'bilder', '.vscode', '.idea'
 ];
 
 function sendJson(res, statusCode, data) {

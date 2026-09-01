@@ -177,6 +177,7 @@
 
         <!-- View 2: Active Conversation Timeline -->
         <section id="view-conversation" class="view-panel hidden">
+          <div id="conversation-pinned-plan" class="pinned-plan-container hidden"></div>
           <div id="conversation-stream"></div>
 
           <!-- Sticky Bottom Prompt Box -->
@@ -731,6 +732,9 @@
           </div>
           <div class="ide-agent-subbrand">FreeAI</div>
         </div>
+
+        <!-- Pinned Active Plan (Always above chat) -->
+        <div id="ide-agent-pinned-plan" class="pinned-plan-container hidden"></div>
 
         <!-- Chat Stream -->
         <div id="ide-agent-stream">

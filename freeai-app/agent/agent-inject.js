@@ -240,9 +240,9 @@
       .replace(/`+$/g, '')
       .trim();
 
-    // 1. Markdown code block extraction
+    // 1. Markdown code block extraction (scan from START to get FIRST tool)
     const codeBlocks = Array.from(str.matchAll(/`{1,3}(?:json|tool_call)?\s*([\s\S]*?)\s*`{0,3}/gi));
-    for (let i = codeBlocks.length - 1; i >= 0; i--) {
+    for (let i = 0; i < codeBlocks.length; i++) {
       const blockContent = codeBlocks[i][1].trim();
       const s = blockContent.indexOf('{');
       const e = blockContent.lastIndexOf('}');
@@ -255,9 +255,9 @@
       }
     }
 
-    // 2. Scan string for valid JSON objects from end to start
+    // 2. Scan string for valid JSON objects from start to end (first tool)
     const toolKeywords = Array.from(cleaned.matchAll(/"(?:tool|action|name)"\s*:\s*"([^"]+)"/gi));
-    for (let i = toolKeywords.length - 1; i >= 0; i--) {
+    for (let i = 0; i < toolKeywords.length; i++) {
       const match = toolKeywords[i];
       const matchIdx = match.index;
       const s = cleaned.lastIndexOf('{', matchIdx);
@@ -475,7 +475,7 @@
     const result = await waitForToolResult(120000);
     if (!AGENT_STATE.running || result === null) return;
 
-    await submitPrompt(`[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen. Führe direkt den nächsten Schritt als JSON-Aktionsblock aus (oder schließe mit task_completed ab).`);
+    await submitPrompt(`[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen. Führe nun genau den nächsten EINZELNEN Schritt aus (1 Satz lautes Denken + genau 1 JSON-Tool-Block, oder schließe mit task_completed ab).`);
     AGENT_STATE.step++;
     loopTimer = setTimeout(() => runLoopStable(0), 500);
   }
@@ -560,13 +560,19 @@ Du bearbeitest Entwicklungs- und Code-Aufgaben im lokalen Projekt des Nutzers vo
 📌 WICHTIGE ARBEITSREGELN:
 1. RELEVANZ: Führe Datei-Operationen NUR DANN aus, wenn sie für die konkrete Benutzeraufgabe wirklich erforderlich sind!
 2. AUTONOMIE: Frage den Nutzer niemals nach Dateien, die du per read_file selbst lesen kannst.
-3. WÄHREND DER SCHRITTE: Schreibe vor jedem JSON-Block nur 1 kurzen Gedanken-Satz. Am Ende jedes Schritts genau 1 JSON-Block.
-4. ABSCHLUSS: Wenn alles erledigt ist, gib die vollständige Erklärung und schließe ab mit:
+3. WÄHREND DER SCHRITTE ("Lautes Denken"):
+   - Schreibe VOR dem JSON-Block genau 1 kurzen Satz ("Lautes Denken"), der beschreibt, was du jetzt tust (z.B. "Erstelle zunächst den Umsetzungsplan...", "Lese nun index.js...").
+   - Schreibe während der Schritte KEINE langen Texte, keine vorzeitigen Auswertungen und keinen Code im Fließtext.
+4. ⛔ EISERNE TOOL-REGEL:
+   - Gib pro Antwort IMMER GENAU EINEN (1) EINZIGEN JSON-Tool-Block am Ende deiner Antwort aus!
+   - Führe NIEMALS mehrere Tools in einer einzigen Antwort aus (z.B. niemals create_plan und step_done oder task_completed gleichzeitig in derselben Nachricht!).
+   - Warte nach JEDEM Tool-Aufruf auf das Ergebnis [TOOL RESULT] der Kortex IDE!
+5. ABSCHLUSS: Erst wenn alle Schritte vollständig ausgeführt sind, schließe ab mit:
 \`\`\`json
-{ "tool": "task_completed", "parameters": { "summary": "Zusammenfassung der Änderungen..." } }
+{ "tool": "task_completed", "parameters": { "summary": "Ausführliche Erklärung und Zusammenfassung aller Änderungen..." } }
 \`\`\`
 
-5. VERFÜGBARE TOOLS:
+6. VERFÜGBARE TOOLS (immer genau 1 Block pro Schritt):
 - { "tool": "list_files", "parameters": { "maxDepth": 5 } }
 - { "tool": "read_file", "parameters": { "path": "dateiname" } }
 - { "tool": "create_plan", "parameters": { "title": "...", "steps": [...] } }
@@ -583,7 +589,7 @@ PROJEKTORDNER: ${normalizedPath}${snapshotBlock}
 AUFGABE DES BENUTZERS:
 ${task}
 
-➡️ Bearbeite die Aufgabe des Nutzers zielgerichtet.`;
+➡️ Starte jetzt mit dem ersten Schritt (nur 1 Gedankensatz + genau 1 JSON-Block).`;
     }
 
     submitPrompt(prompt).then((sent) => {

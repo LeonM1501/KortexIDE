@@ -281,18 +281,31 @@ function injectAgentScript() {
 ipcMain.handle('fs:list-files', async (_, { workspacePath, maxDepth = 6 }) => {
   try {
     const result = [];
+    const IGNORED_DIRS = new Set([
+      '.git', 'node_modules', '.DS_Store', '__pycache__', 'dist', 'build', '.next',
+      'dist-installer', 'release', 'win-unpacked', 'win-unpacked.tmp', 'locales',
+      'Bilder', 'bilder', '.gemini', '.agents', '.vscode', '.idea'
+    ]);
+    const IGNORED_EXTS = new Set([
+      'exe', 'zip', 'asar', 'pak', 'dll', 'tmp', 'dat', 'bin', 'pdb', 'log', '7z', 'rar', 'tar', 'gz'
+    ]);
+
     function walk(dir, depth, relBase = '') {
       if (depth > maxDepth) return;
       if (!fs.existsSync(dir)) return;
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (['.git', 'node_modules', '.DS_Store', '__pycache__', 'dist', 'build', '.next'].includes(entry.name)) continue;
-        const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
-        const absPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (IGNORED_DIRS.has(entry.name) || entry.name.endsWith('.tmp') || entry.name.startsWith('.')) continue;
+          const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+          const absPath = path.join(dir, entry.name);
           result.push({ type: 'directory', path: relPath, name: entry.name });
           walk(absPath, depth + 1, relPath);
         } else {
+          const ext = (path.extname(entry.name) || '').toLowerCase().replace('.', '');
+          if (IGNORED_EXTS.has(ext) || entry.name.startsWith('.')) continue;
+          const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+          const absPath = path.join(dir, entry.name);
           const stat = fs.statSync(absPath);
           result.push({ type: 'file', path: relPath, name: entry.name, size: stat.size });
         }

@@ -631,6 +631,7 @@ function startNewConversation() {
   if (ideInput) ideInput.value = '';
 
   window.freeai.newChat();
+  updatePinnedPlanWidget(null);
   renderSidebarProjects();
 }
 
@@ -872,6 +873,9 @@ function renderTurnsIntoContainer(session, stream) {
     }
   });
 
+  const latestPlan = (session.turns || []).slice().reverse().find(t => t.type === 'plan');
+  updatePinnedPlanWidget(latestPlan || null);
+
   stream.scrollTop = stream.scrollHeight;
 }
 
@@ -902,6 +906,84 @@ function appendTurnToBothStreams(createFn) {
   }
 
   return { kortexEl, ideEl };
+}
+
+// ── Pinned Plan Widget (Always pinned at top of chat stream) ──
+function updatePinnedPlanWidget(planItem) {
+  const containers = [
+    document.getElementById('conversation-pinned-plan'),
+    document.getElementById('ide-agent-pinned-plan')
+  ];
+
+  if (!planItem || !planItem.steps || planItem.steps.length === 0) {
+    containers.forEach(c => {
+      if (c) {
+        c.classList.add('hidden');
+        c.innerHTML = '';
+      }
+    });
+    return;
+  }
+
+  const steps = planItem.steps || [];
+  const doneCount = steps.filter(s => s.done).length;
+  const totalCount = steps.length;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  containers.forEach(c => {
+    if (!c) return;
+    c.classList.remove('hidden');
+
+    c.innerHTML = `
+      <div class="pinned-plan-header">
+        <div class="pinned-plan-title-group">
+          <span class="pinned-plan-badge">Plan</span>
+          <span class="pinned-plan-title-text">${escHtml(planItem.title || 'Aufgabenplan')}</span>
+        </div>
+        <div class="pinned-plan-stats-group">
+          <div class="pinned-plan-count-label">${doneCount} von ${totalCount} (${pct}%)</div>
+          <div class="pinned-plan-progress-bar">
+            <div class="pinned-plan-progress-fill" style="width: ${pct}%;"></div>
+          </div>
+          <svg class="pinned-plan-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="pinned-plan-steps">
+        ${steps.map(s => `
+          <div class="plan-step-row ${s.done ? 'is-done' : ''}" data-step-id="${s.id}">
+            <div class="plan-checkbox ${s.done ? 'checked' : ''}">
+              ${s.done ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+            </div>
+            <span class="plan-step-label">${escHtml(s.title)}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    const header = c.querySelector('.pinned-plan-header');
+    header?.addEventListener('click', () => {
+      c.classList.toggle('collapsed');
+    });
+
+    c.querySelectorAll('.plan-step-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const stepId = Number(row.dataset.stepId);
+        const isDone = row.classList.toggle('is-done');
+        const cb = row.querySelector('.plan-checkbox');
+        if (cb) {
+          cb.classList.toggle('checked', isDone);
+          cb.innerHTML = isDone ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : '';
+        }
+
+        const step = planItem.steps.find(s => Number(s.id) === stepId);
+        if (step) step.done = isDone;
+
+        saveActiveSession();
+        updatePinnedPlanWidget(planItem);
+      });
+    });
+  });
 }
 
 // ── Plan Checklist Card ───────────────────────────────
@@ -957,9 +1039,11 @@ function createPlanCard(item) {
       if (countLabel) countLabel.textContent = `${newDoneCount} von ${item.steps.length} Aufgaben erledigt`;
 
       saveActiveSession();
+      updatePinnedPlanWidget(item);
     });
   });
 
+  updatePinnedPlanWidget(item);
   return card;
 }
 
@@ -1813,6 +1897,11 @@ async function executeToolLocally(tool, params) {
           if (counterEl && totalCount > 0) {
             counterEl.textContent = `${doneCount} von ${totalCount} Aufgaben erledigt`;
           }
+        }
+
+        const activePlan = APP_STATE.activeSession?.turns?.slice().reverse().find(t => t.type === 'plan');
+        if (activePlan) {
+          updatePinnedPlanWidget(activePlan);
         }
 
         return {
