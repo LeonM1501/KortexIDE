@@ -1,9 +1,9 @@
 /**
- * Kortex Agent Inject Script v6
- * - Intelligent task routing: direct answers for greetings & general questions without unnecessary file reads
- * - Robust tool parser: handles malformed backticks, <pre><code> DOM blocks, and flat/nested JSON params
- * - Declared tool handshake with watchdog auto-retry on connection stalls
- * - Clean stop & reset lifecycle
+ * Kortex Agent Inject Script v7
+ * - Robust ProseMirror & React DOM prompt injector with multi-layer verification
+ * - 7s submission watchdog: auto-resends prompt if ChatGPT fails to start generating
+ * - Exact single-tool parsing from start of response
+ * - Reliable tool result handshake with immediate turn progression
  */
 (function () {
   'use strict';
@@ -20,10 +20,11 @@
     task: '',
     step: 0,
     maxSteps: 250,
-    pollMs: 400,
+    pollMs: 350,
     responseTimeoutMs: 180000,
     stallTimeoutMs: 15000,
-    retryLimit: 2,
+    submitTimeoutMs: 7000,
+    retryLimit: 3,
     startTime: 0,
     lastPrompt: '',
     awaitingAssistantCount: 0,
@@ -31,7 +32,6 @@
   };
 
   let loopTimer = null;
-  let lastStreamedText = '';
   let _toolResultResolve = null;
   let _toolResultTimer = null;
 
@@ -138,23 +138,8 @@
     return '';
   }
 
-  // ── Prompt Submission (React-compatible) ──────────────
-  async function submitPrompt(text, retries = 15) {
-    AGENT_STATE.lastPrompt = text;
-    AGENT_STATE.awaitingAssistantCount = getAssistantTurns().length;
-    let input = getInput();
-    if (!input) {
-      if (retries <= 0) {
-        if (AGENT_STATE.running) {
-          emit('agent:error', { message: 'Das ChatGPT-Eingabefeld konnte nicht gefunden werden.' });
-          AGENT_STATE.running = false;
-        }
-        return false;
-      }
-      await sleep(600);
-      return submitPrompt(text, retries - 1);
-    }
-
+  // ── Ultra-Reliable Prompt Submission ──────────────────
+  function setElementText(input, text) {
     input.focus();
 
     if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
@@ -166,46 +151,94 @@
       } else {
         input.value = text;
       }
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      // Contenteditable (ProseMirror in ChatGPT)
-      input.focus();
-      try {
-        document.execCommand('selectAll', false, null);
-        document.execCommand('delete', false, null);
-        document.execCommand('insertText', false, text);
-      } catch (e) {}
+      input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+      return;
+    }
 
-      if (!input.innerText || !input.innerText.trim()) {
-        input.innerHTML = '';
-        const p = document.createElement('p');
-        p.innerText = text;
-        input.appendChild(p);
+    // Contenteditable ProseMirror in ChatGPT
+    input.innerHTML = '';
+    const p = document.createElement('p');
+    p.textContent = text;
+    input.appendChild(p);
+
+    try {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      document.execCommand('insertText', false, text);
+    } catch (e) {}
+
+    input.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: text
+    }));
+    input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+  }
+
+  async function triggerSendClick(input) {
+    input.focus();
+
+    // 1. Try send button
+    for (let i = 0; i < 15; i++) {
+      const btn = getSendBtn();
+      if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+        btn.click();
+        break;
       }
-      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(150);
     }
 
-    await sleep(400);
-    if (!AGENT_STATE.running) return false;
-    let btn = getSendBtn();
-    for (let i = 0; i < 20 && (!btn || btn.disabled); i++) {
-      await sleep(200);
-      btn = getSendBtn();
+    // 2. Try Enter Key
+    const keyOpts = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
+    input.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+    input.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+
+    // 3. Try Form Submit
+    const form = input.closest('form');
+    if (form) {
+      try { form.requestSubmit(); } catch (e) {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      }
     }
-    if (btn && !btn.disabled) {
-      btn.click();
-      return true;
+  }
+
+  async function submitPrompt(text, maxRetries = 3) {
+    AGENT_STATE.lastPrompt = text;
+    const initialCount = getAssistantTurns().length;
+    AGENT_STATE.awaitingAssistantCount = initialCount;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (!AGENT_STATE.running) return false;
+
+      const input = getInput();
+      if (!input) {
+        await sleep(800);
+        continue;
+      }
+
+      setElementText(input, text);
+      await sleep(350);
+      await triggerSendClick(input);
+
+      // Verify that send actually started
+      for (let check = 0; check < 15; check++) {
+        await sleep(200);
+        if (isStreaming() || getAssistantTurns().length > initialCount) {
+          return true;
+        }
+      }
+
+      console.warn(`[Kortex Agent] Prompt attempt ${attempt} not picked up, retrying...`);
+      await sleep(400);
     }
 
-    // Fallback: Dispatch Enter key
-    const keyOptions = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
-    input.dispatchEvent(new KeyboardEvent('keydown', keyOptions));
-    input.dispatchEvent(new KeyboardEvent('keyup', keyOptions));
-    await sleep(400);
-    return Boolean(getSendBtn() || getAssistantTurns().length > AGENT_STATE.awaitingAssistantCount);
+    return isStreaming() || getAssistantTurns().length > initialCount;
   }
 
   // ── Tool Call Parser ──────────────────────────────────
@@ -313,7 +346,7 @@
     return { tool: baseTool, parameters };
   }
 
-  // ── Stable Response Watcher ───────────────────────────
+  // ── Stable Response Watcher with Auto-Resend Watchdog ──
   async function waitForAssistantResponseStable() {
     const expectedCount = AGENT_STATE.awaitingAssistantCount;
     const startedAt = Date.now();
@@ -321,9 +354,20 @@
     let lastProgressAt = Date.now();
     let turnAppearedAt = 0;
     let observedTurn = null;
+    let autoResent = false;
 
     while (AGENT_STATE.running) {
       const turns = getAssistantTurns();
+
+      // If no new turn appeared after 7 seconds, auto-resubmit the prompt
+      if (turns.length <= expectedCount && !isStreaming()) {
+        if (!autoResent && Date.now() - startedAt > AGENT_STATE.submitTimeoutMs) {
+          autoResent = true;
+          console.log('[Kortex Agent] Keine Antwort gestartet — sende Prompt erneut...');
+          await submitPrompt(AGENT_STATE.lastPrompt, 2);
+        }
+      }
+
       if (turns.length > expectedCount) {
         const turn = turns[turns.length - 1];
         if (turn !== observedTurn) {
@@ -511,11 +555,9 @@
   function isConversationalTask(text) {
     const value = String(text || '').trim().toLowerCase();
     if (!value) return false;
-    // Common greetings and casual questions
     if (/^(hi|hallo|hey|hello|servus|moin|guten tag|guten morgen|guten abend|danke|vielen dank|wer bist du|wie gehts|wie geht es dir|was kannst du|hilfe)\b/.test(value)) {
       return true;
     }
-    // Check if task involves explicit coding/workspace actions
     const codingIntent = /(erstelle|baue|entwickle|programmi|codi|implement|ändere|aendere|fixe|reparier|behebe|schreib|öffne|oeffne|datei|projekt|code|funktion|bug|fehler|terminal|befehl|install|deploy|analys|prüf|pruef|änderung|aenderung|refactor|delete|lösche|lese|read)/i;
     return !codingIntent.test(value) && value.split(/\s+/).length <= 25;
   }
@@ -534,13 +576,11 @@
       startTime: Date.now(),
       conversationOnly: isConv
     };
-    lastStreamedText = '';
     emit('agent:started', { task, workspace });
 
     let prompt = '';
 
     if (isConv) {
-      // Clean, direct prompt for conversation / questions
       prompt = `Der Nutzer schreibt folgende Nachricht in der Kortex IDE:
 "${task}"
 
@@ -548,7 +588,6 @@
 - Antworte direkt, freundlich und präzise auf die Frage des Nutzers.
 - Da dies eine normale Frage/Begrüßung ist, führe KEINE Tool-Aufrufe, KEINE Dateisuchen und KEINE Datei-Analysen aus.`;
     } else {
-      // Full Autonomous Coding Agent Prompt
       const normalizedPath = (workspace || '').replace(/\\/g, '/');
       const snapshotBlock = projectSnapshot
         ? `\n\n📂 PROJEKTSTRUKTUR:\n\`\`\`\n${projectSnapshot}\n\`\`\``
@@ -625,5 +664,5 @@ ${task}
     emit('agent:stopped', {});
   };
 
-  console.log('⚡ Kortex Agent Inject Script v6 initialisiert.');
+  console.log('⚡ Kortex Agent Inject Script v7 initialisiert.');
 })();
