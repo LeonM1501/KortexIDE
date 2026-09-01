@@ -1,0 +1,54 @@
+{
+  "name": "kortex-ide",
+  "productName": "Kortex IDE",
+  "version": "1.0.0",
+  "description": "Kortex - Autonomous Next-Gen AI Coding Studio",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "package": "electron-packager . \"Kortex IDE\" --platform=win32 --arch=x64 --out=dist --icon=assets/icon.ico --ignore=\"^/dist\" --ignore=\"^/dist-installer\" --overwrite",
+    "build:installer": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.kortex.ide",
+    "productName": "Kortex IDE",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-chatgpt.js",
+      "bridge-server.js",
+      "agent/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kortex IDE",
+      "uninstallDisplayName": "Kortex IDE",
+      "runAfterFinish": true
+    }
+  },
+  "dependencies": {
+    "diff": "^5.2.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-packager": "^17.1.2"
+  },
+  "author": "Kortex Intelligence",
+  "license": "MIT"
+}

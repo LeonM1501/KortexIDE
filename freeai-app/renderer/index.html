@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kortex IDE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════════
+       1. KORTEX STUDIO VIEW (Classic View)
+       ═══════════════════════════════════════════════════ -->
+  <div id="kortex-studio-view" class="app-mode-view">
+    <!-- ── Custom Kortex Title Bar ──────────────────────── -->
+    <div id="titlebar">
+      <div id="titlebar-left">
+        <span class="app-brand-title">Kortex</span>
+        <div class="titlebar-menu">
+          <div class="tb-menu-wrapper">
+            <span class="tb-menu-item" id="tb-menu-file">File</span>
+            <div class="tb-dropdown-menu hidden" id="dropdown-file">
+              <div class="tb-dropdown-item" id="item-new-conv">
+                <span>New Conversation</span>
+                <span class="tb-shortcut">Ctrl+Shift+O</span>
+              </div>
+              <div class="tb-dropdown-item" id="item-create-project">
+                <span>Create Project</span>
+              </div>
+              <div class="tb-dropdown-item" id="item-command-palette">
+                <span>Command Palette</span>
+                <span class="tb-shortcut">Ctrl+Shift+P</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tb-menu-wrapper">
+            <span class="tb-menu-item" id="tb-menu-view">View</span>
+            <div class="tb-dropdown-menu hidden" id="dropdown-view">
+              <div class="tb-dropdown-item" id="item-zoom-in">
+                <span>Zoom In</span>
+                <span class="tb-shortcut">Ctrl+=</span>
+              </div>
+              <div class="tb-dropdown-item" id="item-zoom-out">
+                <span>Zoom Out</span>
+                <span class="tb-shortcut">Ctrl+-</span>
+              </div>
+              <div class="tb-dropdown-item" id="item-zoom-reset">
+                <span>Reset Zoom</span>
+                <span class="tb-shortcut">Ctrl+0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tb-menu-wrapper">
+            <span class="tb-menu-item" id="tb-menu-window">Window</span>
+            <div class="tb-dropdown-menu hidden" id="dropdown-window">
+              <div class="tb-dropdown-item" id="item-win-minimize">
+                <span>Minimize</span>
+              </div>
+              <div class="tb-dropdown-item" id="item-win-maximize">
+                <span>Maximize</span>
+              </div>
+              <div class="tb-dropdown-item" id="item-win-close">
+                <span>Close</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="titlebar-center">
+        <div id="breadcrumb" title="Klicken um Projekt zu wechseln">
+          <span id="bc-project">No Project</span>
+          <span class="bc-sep">/</span>
+          <span id="bc-session">New Conversation</span>
+        </div>
+      </div>
+      <div id="titlebar-right">
+        <button class="tb-pill-btn" id="btn-chatgpt-browser" title="Internen ChatGPT Browser für Login / Captcha öffnen">
+          <span class="status-indicator-dot" id="chatgpt-status-dot"></span>
+          <span id="chatgpt-status-label">ChatGPT Backend</span>
+        </button>
+
+        <button class="tb-pill-btn" id="btn-toggle-diff-header" title="Review & Diff Panel öffnen">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h4M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M12 8v8M9 12h6"/></svg>
+          Diff / Review
+        </button>
+
+        <button class="tb-primary-btn" id="btn-open-ide">
+          <span class="ide-icon">▲</span>
+          Open IDE
+        </button>
+      </div>
+    </div>
+
+    <!-- ── App Layout ─────────────────────────────────── -->
+    <div id="app-layout">
+      <!-- ── Left Sidebar ────────────────────────────── -->
+      <aside id="sidebar">
+        <div id="sidebar-top">
+          <button class="new-conversation-btn" id="btn-new-conv">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Conversation
+          </button>
+
+          <div class="sidebar-nav-item" id="nav-conv-history">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>Conversation History</span>
+          </div>
+
+          <div class="sidebar-nav-item" id="nav-scheduled-tasks">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 10"/></svg>
+            <span>Scheduled Tasks</span>
+          </div>
+        </div>
+
+        <!-- Projects Section -->
+        <div id="sidebar-projects-section">
+          <div class="sidebar-section-header">
+            <span>Projects</span>
+            <div class="section-actions">
+              <button class="icon-btn-subtle" id="btn-filter-projects" title="Projekte durchsuchen">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
+              </button>
+              <button class="icon-btn-subtle" id="btn-add-project" title="Projektordner hinzufügen">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="projects-list-container"></div>
+        </div>
+      </aside>
+
+      <!-- ── Center: Main Conversation Area ─────────── -->
+      <main id="main-content">
+        <!-- View 1: Empty New Conversation State -->
+        <section id="view-empty-state" class="view-panel">
+          <div class="empty-state-header">
+            <div class="project-trigger-pill" id="empty-project-trigger">
+              <span id="empty-selected-project-label">New Conversation</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+          </div>
+
+          <div class="empty-state-center">
+            <div class="antigravity-prompt-card" id="card-prompt-hero">
+              <div class="image-attachment-tray hidden" id="image-tray-hero"></div>
+              <div class="prompt-input-wrapper">
+                <textarea id="prompt-input-hero" rows="2" placeholder="Ask anything, @ to mention, / for actions"></textarea>
+              </div>
+              <div class="prompt-bottom-toolbar">
+                <div class="prompt-tools-left">
+                  <button class="tool-circle-btn" id="btn-add-context" title="Bild / Dateien anhängen (+)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </button>
+                  <div class="model-badge-pill" id="model-badge-hero" title="KI-Modell">
+                    <span class="model-name">⚡ GPT-5.6 Luna</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                </div>
+                <div class="prompt-tools-right">
+                  <button class="send-prompt-btn" id="btn-send-hero" title="Senden (Enter)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                  </button>
+                  <button class="stop-agent-btn hidden" id="btn-stop-hero" title="Agent stoppen">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                    Stop
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- View 2: Active Conversation Timeline -->
+        <section id="view-conversation" class="view-panel hidden">
+          <div id="conversation-stream"></div>
+
+          <!-- Sticky Bottom Prompt Box -->
+          <div id="conversation-bottom-bar">
+            <div class="antigravity-prompt-card compact" id="card-prompt-bottom">
+              <div class="image-attachment-tray hidden" id="image-tray-bottom"></div>
+              <div class="prompt-input-wrapper">
+                <textarea id="prompt-input-bottom" rows="1" placeholder="Ask anything, @ to mention, / for actions"></textarea>
+              </div>
+              <div class="prompt-bottom-toolbar">
+                <div class="prompt-tools-left">
+                  <button class="tool-circle-btn" id="btn-add-context-bottom" title="Bild / Dateien anhängen (+)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </button>
+                  <div class="model-badge-pill">
+                    <span class="model-name">⚡ GPT-5.6 Luna</span>
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                </div>
+                <div class="prompt-tools-right">
+                  <button class="send-prompt-btn" id="btn-send-bottom">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                  </button>
+                  <button class="stop-agent-btn hidden" id="btn-stop-bottom" title="Agent stoppen">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                    Stop
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- ── Right Panel: Artifacts, Walkthrough & Diff ── -->
+      <aside id="right-panel" class="hidden">
+        <div id="right-panel-header">
+          <div id="right-tabs-bar">
+            <button class="r-tab active" data-tab="diff" id="tab-btn-diff">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h4M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M12 8v8M9 12h6"/></svg>
+              Review & Diff
+            </button>
+            <button class="r-tab" data-tab="walkthrough" id="tab-btn-walkthrough">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Walkthrough
+            </button>
+            <button class="r-tab" data-tab="files" id="tab-btn-files">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+              Files
+            </button>
+          </div>
+          <div class="right-header-actions">
+            <button class="icon-btn-subtle" id="btn-close-right-panel" title="Panel schließen">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab Content: Diff / Review -->
+        <div id="panel-tab-diff" class="right-tab-content active">
+          <div id="diff-header-summary">
+            <span id="diff-total-files">0 files changed</span>
+            <div class="diff-counters">
+              <span id="diff-stat-add" class="add">+0</span>
+              <span id="diff-stat-del" class="del">-0</span>
+            </div>
+          </div>
+          <div id="diff-files-list"></div>
+        </div>
+
+        <!-- Tab Content: Walkthrough -->
+        <div id="panel-tab-walkthrough" class="right-tab-content">
+          <div class="artifact-document-container" id="walkthrough-content">
+            <div class="doc-header">
+              <span class="doc-badge">Walkthrough</span>
+              <h1 id="doc-walkthrough-title">Projekt-Übersicht</h1>
+            </div>
+            <div class="doc-markdown" id="doc-walkthrough-body">
+              <p>Hier erscheint die Dokumentation des Agenten.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content: Files Tree -->
+        <div id="panel-tab-files" class="right-tab-content">
+          <div id="file-explorer-header">
+            <span id="file-explorer-path">/</span>
+            <button class="icon-btn-subtle" id="btn-refresh-tree" title="Aktualisieren">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+          </div>
+          <div id="file-tree-container"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       2. ANTIGRAVITY IDE VIEW (Full VS Code Layout)
+       ═══════════════════════════════════════════════════ -->
+  <div id="ide-view" class="app-mode-view hidden">
+    <!-- ── IDE Top Titlebar & Menu Bar ────────────────── -->
+    <div id="ide-titlebar">
+      <div id="ide-titlebar-left">
+        <div class="ide-logo-badge">
+          <span class="ide-logo-icon">▲</span>
+        </div>
+        <div class="ide-menu-bar">
+          <div class="ide-menu-item" id="ide-menu-file">
+            <span>File</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-file">
+              <div class="ide-dropdown-row" id="ide-item-new-file"><span>New Text File</span><span class="ide-shortcut">Ctrl+N</span></div>
+              <div class="ide-dropdown-row" id="ide-item-open-file"><span>Open File...</span><span class="ide-shortcut">Ctrl+O</span></div>
+              <div class="ide-dropdown-row" id="ide-item-open-folder"><span>Open Folder...</span><span class="ide-shortcut">Ctrl+K Ctrl+O</span></div>
+              <div class="ide-dropdown-sep"></div>
+              <div class="ide-dropdown-row" id="ide-item-save-file"><span>Save</span><span class="ide-shortcut">Ctrl+S</span></div>
+              <div class="ide-dropdown-row" id="ide-item-save-all"><span>Save All</span><span class="ide-shortcut">Ctrl+K S</span></div>
+              <div class="ide-dropdown-sep"></div>
+              <div class="ide-dropdown-row" id="ide-item-close-editor"><span>Close Editor</span><span class="ide-shortcut">Ctrl+F4</span></div>
+              <div class="ide-dropdown-row" id="ide-item-close-folder"><span>Close Folder</span><span class="ide-shortcut">Ctrl+K F</span></div>
+              <div class="ide-dropdown-sep"></div>
+              <div class="ide-dropdown-row" id="ide-item-exit-to-kortex"><span>Return to Kortex Studio</span><span class="ide-shortcut">Esc</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-edit">
+            <span>Edit</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-edit">
+              <div class="ide-dropdown-row" id="ide-item-undo"><span>Undo</span><span class="ide-shortcut">Ctrl+Z</span></div>
+              <div class="ide-dropdown-row" id="ide-item-redo"><span>Redo</span><span class="ide-shortcut">Ctrl+Y</span></div>
+              <div class="ide-dropdown-sep"></div>
+              <div class="ide-dropdown-row" id="ide-item-cut"><span>Cut</span><span class="ide-shortcut">Ctrl+X</span></div>
+              <div class="ide-dropdown-row" id="ide-item-copy"><span>Copy</span><span class="ide-shortcut">Ctrl+C</span></div>
+              <div class="ide-dropdown-row" id="ide-item-paste"><span>Paste</span><span class="ide-shortcut">Ctrl+V</span></div>
+              <div class="ide-dropdown-sep"></div>
+              <div class="ide-dropdown-row" id="ide-item-find"><span>Find</span><span class="ide-shortcut">Ctrl+F</span></div>
+              <div class="ide-dropdown-row" id="ide-item-replace"><span>Replace</span><span class="ide-shortcut">Ctrl+H</span></div>
+              <div class="ide-dropdown-row" id="ide-item-find-in-files"><span>Find in Files</span><span class="ide-shortcut">Ctrl+Shift+F</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-selection">
+            <span>Selection</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-selection">
+              <div class="ide-dropdown-row" id="ide-item-select-all"><span>Select All</span><span class="ide-shortcut">Ctrl+A</span></div>
+              <div class="ide-dropdown-row" id="ide-item-expand-sel"><span>Expand Selection</span><span class="ide-shortcut">Shift+Alt+Right</span></div>
+              <div class="ide-dropdown-row" id="ide-item-duplicate-line"><span>Duplicate Line</span><span class="ide-shortcut">Shift+Alt+Down</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-view">
+            <span>View</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-view">
+              <div class="ide-dropdown-row" id="ide-item-view-explorer"><span>Explorer</span><span class="ide-shortcut">Ctrl+Shift+E</span></div>
+              <div class="ide-dropdown-row" id="ide-item-view-search"><span>Search</span><span class="ide-shortcut">Ctrl+Shift+F</span></div>
+              <div class="ide-dropdown-row" id="ide-item-view-git"><span>Source Control</span><span class="ide-shortcut">Ctrl+Shift+G</span></div>
+              <div class="ide-dropdown-sep"></div>
+              <div class="ide-dropdown-row" id="ide-item-view-terminal"><span>Terminal</span><span class="ide-shortcut">Ctrl+`</span></div>
+              <div class="ide-dropdown-row" id="ide-item-view-problems"><span>Problems</span><span class="ide-shortcut">Ctrl+Shift+M</span></div>
+              <div class="ide-dropdown-row" id="ide-item-view-output"><span>Output</span><span class="ide-shortcut">Ctrl+Shift+U</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-go">
+            <span>Go</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-go">
+              <div class="ide-dropdown-row" id="ide-item-go-file"><span>Go to File...</span><span class="ide-shortcut">Ctrl+P</span></div>
+              <div class="ide-dropdown-row" id="ide-item-go-line"><span>Go to Line/Column...</span><span class="ide-shortcut">Ctrl+G</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-run">
+            <span>Run</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-run">
+              <div class="ide-dropdown-row" id="ide-item-run-no-debug"><span>Run Without Debugging</span><span class="ide-shortcut">Ctrl+F5</span></div>
+              <div class="ide-dropdown-row" id="ide-item-start-debug"><span>Start Debugging</span><span class="ide-shortcut">F5</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-terminal">
+            <span>Terminal</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-terminal">
+              <div class="ide-dropdown-row" id="ide-item-new-terminal"><span>New Terminal</span><span class="ide-shortcut">Ctrl+Shift+`</span></div>
+              <div class="ide-dropdown-row" id="ide-item-run-active-file"><span>Run Active File</span></div>
+              <div class="ide-dropdown-row" id="ide-item-clear-terminal"><span>Clear Terminal</span></div>
+            </div>
+          </div>
+
+          <div class="ide-menu-item" id="ide-menu-help">
+            <span>Help</span>
+            <div class="ide-dropdown-menu hidden" id="ide-dropdown-help">
+              <div class="ide-dropdown-row" id="ide-item-about"><span>About FreeAI IDE</span></div>
+              <div class="ide-dropdown-row" id="ide-item-chatgpt-auth"><span>Check ChatGPT Status</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ide-titlebar-center">
+        <div class="ide-window-title">
+          <span class="ide-title-project" id="ide-title-project-name">FreeAI</span>
+          <span class="ide-title-sep">-</span>
+          <span class="ide-title-app">Kortex IDE</span>
+          <span class="ide-title-sep">-</span>
+          <span class="ide-title-file" id="ide-title-active-file">bridge-server.js</span>
+        </div>
+      </div>
+
+      <div id="ide-titlebar-right">
+        <button class="ide-top-pill" id="ide-btn-chatgpt-browser" title="ChatGPT Backend & Login Status">
+          <span class="status-indicator-dot" id="ide-chatgpt-status-dot"></span>
+          <span id="ide-chatgpt-status-label">ChatGPT Backend</span>
+        </button>
+
+        <button class="ide-back-btn" id="btn-back-to-kortex" title="Zurück zur Kortex Studio Ansicht">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          Kortex Studio
+        </button>
+
+        <div class="ide-window-controls">
+          <button class="ide-win-btn" id="ide-win-min" title="Minimieren"><svg width="10" height="10" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg></button>
+          <button class="ide-win-btn" id="ide-win-max" title="Maximieren"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x="0.5" y="0.5" width="9" height="9"/></svg></button>
+          <button class="ide-win-btn close" id="ide-win-close" title="Schließen"><svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor"/></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── IDE Main Content Grid ──────────────────────── -->
+    <div id="ide-layout-body">
+      <!-- ── Left Activity Bar ──────────────────────── -->
+      <nav id="ide-activity-bar">
+        <div class="ide-act-top">
+          <button class="ide-act-icon active" data-pane="explorer" id="act-btn-explorer" title="Explorer (Ctrl+Shift+E)">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          </button>
+          <button class="ide-act-icon" data-pane="search" id="act-btn-search" title="Search (Ctrl+Shift+F)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+          <button class="ide-act-icon" data-pane="git" id="act-btn-git" title="Source Control (Ctrl+Shift+G)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><path d="M18 9a9 9 0 0 0-9 9"/></svg>
+            <span class="ide-badge-dot hidden" id="git-changes-badge"></span>
+          </button>
+          <button class="ide-act-icon" data-pane="debug" id="act-btn-debug" title="Run and Debug (Ctrl+Shift+D)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v4M4.93 10.93l2.83-2.83M2 18h4M20 18h2M16.24 8.1l2.83-2.83M9 13v7a3 3 0 0 0 6 0v-7M8 13h8M9 9h6"/></svg>
+          </button>
+          <button class="ide-act-icon" data-pane="extensions" id="act-btn-ext" title="Extensions">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </button>
+        </div>
+
+        <div class="ide-act-bottom">
+          <button class="ide-act-icon" id="ide-act-switch-kortex" title="Zurück zu Kortex Studio">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button class="ide-act-icon" id="ide-act-settings" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+      </nav>
+
+      <!-- ── Left Sidebar Panels ────────────────────── -->
+      <aside id="ide-sidebar">
+        <!-- 1. Explorer Pane -->
+        <div class="ide-sidebar-panel" id="ide-pane-explorer">
+          <div class="ide-panel-header">
+            <span class="ide-panel-title">EXPLORER</span>
+            <div class="ide-panel-actions">
+              <button class="ide-icon-btn" id="ide-btn-new-file" title="New File"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+              <button class="ide-icon-btn" id="ide-btn-new-folder" title="New Folder"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+              <button class="ide-icon-btn" id="ide-btn-refresh-files" title="Refresh Explorer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+              <button class="ide-icon-btn" id="ide-btn-collapse-all" title="Collapse Folders in Explorer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/></svg></button>
+            </div>
+          </div>
+
+          <!-- Section: Open Editors -->
+          <div class="ide-accordion-section collapsed" id="sec-open-editors">
+            <div class="ide-accordion-header" id="hdr-open-editors">
+              <svg class="ide-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              <span>OPEN EDITORS</span>
+            </div>
+            <div class="ide-accordion-content" id="list-open-editors"></div>
+          </div>
+
+          <!-- Section: Workspace Folder Files -->
+          <div class="ide-accordion-section open" id="sec-workspace-files">
+            <div class="ide-accordion-header" id="hdr-workspace-files">
+              <svg class="ide-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              <span id="ide-workspace-folder-label">FREEAI</span>
+            </div>
+            <div class="ide-accordion-content" id="ide-file-tree-root"></div>
+          </div>
+
+          <!-- Section: Outline -->
+          <div class="ide-accordion-section collapsed" id="sec-outline">
+            <div class="ide-accordion-header" id="hdr-outline">
+              <svg class="ide-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              <span>OUTLINE</span>
+            </div>
+            <div class="ide-accordion-content" id="ide-outline-list">
+              <div class="ide-empty-hint">Keine Symbole in Datei</div>
+            </div>
+          </div>
+
+          <!-- Section: Timeline -->
+          <div class="ide-accordion-section collapsed" id="sec-timeline">
+            <div class="ide-accordion-header" id="hdr-timeline">
+              <svg class="ide-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              <span>TIMELINE</span>
+            </div>
+            <div class="ide-accordion-content" id="ide-timeline-list">
+              <div class="ide-empty-hint">Datei gespeichert</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Search Pane -->
+        <div class="ide-sidebar-panel hidden" id="ide-pane-search">
+          <div class="ide-panel-header">
+            <span class="ide-panel-title">SEARCH</span>
+          </div>
+          <div class="ide-search-box">
+            <input type="text" id="ide-search-input" placeholder="Search files..." autocomplete="off" />
+            <input type="text" id="ide-replace-input" placeholder="Replace..." autocomplete="off" />
+            <div style="display:flex;gap:6px;">
+              <button class="ide-small-btn" id="ide-btn-run-search">Search Workspace</button>
+              <button class="ide-small-btn" id="ide-btn-replace-all">Replace All</button>
+            </div>
+          </div>
+          <div id="ide-search-results-list" class="ide-search-results"></div>
+        </div>
+
+        <!-- 3. Git Source Control Pane -->
+        <div class="ide-sidebar-panel hidden" id="ide-pane-git">
+          <div class="ide-panel-header">
+            <span class="ide-panel-title">SOURCE CONTROL</span>
+            <span class="ide-tag" id="git-status-tag">Git</span>
+          </div>
+          <div class="ide-git-commit-box">
+            <textarea id="ide-git-commit-msg" placeholder="Message (Ctrl+Enter to commit)" rows="2"></textarea>
+            <button class="ide-small-btn primary" id="ide-btn-commit">Commit Changes</button>
+          </div>
+          <div class="ide-accordion-section open">
+            <div class="ide-accordion-header">
+              <svg class="ide-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              <span>CHANGES</span>
+              <span class="ide-count-pill" id="ide-git-changes-count">0</span>
+            </div>
+            <div class="ide-accordion-content" id="ide-git-changes-list"></div>
+          </div>
+        </div>
+
+        <!-- 4. Debug & Extensions Panes -->
+        <div class="ide-sidebar-panel hidden" id="ide-pane-debug">
+          <div class="ide-panel-header"><span class="ide-panel-title">RUN AND DEBUG</span></div>
+          <div style="padding:16px;color:var(--text-sub);font-size:12px;">Run and Debug configuration ready. Hit F5 to start.</div>
+        </div>
+        <div class="ide-sidebar-panel hidden" id="ide-pane-extensions">
+          <div class="ide-panel-header"><span class="ide-panel-title">EXTENSIONS</span></div>
+          <div style="padding:16px;color:var(--text-sub);font-size:12px;">FreeAI Extension Engine: Built-in agent & tools active.</div>
+        </div>
+      </aside>
+
+      <!-- ── Center Editor & Breadcrumbs Area ────────── -->
+      <section id="ide-editor-container">
+        <!-- Editor Tabs Bar -->
+        <div id="ide-tabs-bar">
+          <div id="ide-tabs-list"></div>
+          <button class="ide-tab-action-btn" id="ide-btn-new-tab" title="New Scratchpad Tab (+)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <div class="ide-tabs-right-actions">
+            <button class="ide-tab-action-btn" id="ide-btn-split-editor" title="Split Editor Right">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+            </button>
+            <button class="ide-tab-action-btn" id="ide-btn-toggle-diff" title="Diff / Changes Review">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M12 8v8M9 12h6"/></svg>
+            </button>
+            <button class="ide-tab-action-btn" id="ide-btn-more-editor-actions" title="More Actions">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Breadcrumbs Navigation -->
+        <div id="ide-breadcrumbs-bar">
+          <span class="bc-item" id="ide-bc-workspace">freeai-app</span>
+          <span class="bc-sep">&gt;</span>
+          <span class="bc-item" id="ide-bc-file">bridge-server.js</span>
+          <span class="bc-sep">&gt;</span>
+          <span class="bc-item symbol" id="ide-bc-symbol"><span class="sym-icon">{}</span> <span id="ide-bc-symbol-name">startBridgeServer</span></span>
+        </div>
+
+        <!-- Editor Work Area -->
+        <div id="ide-code-viewport">
+          <!-- Text Code Editor -->
+          <div id="ide-code-editor-main">
+            <div id="ide-gutter">
+              <div id="ide-line-numbers"></div>
+            </div>
+            <div id="ide-code-surface">
+              <textarea id="ide-code-textarea" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+              <pre id="ide-code-highlight-layer"><code id="ide-highlighted-code"></code></pre>
+            </div>
+            <!-- Minimap -->
+            <div id="ide-minimap-container">
+              <div id="ide-minimap-code"></div>
+              <div id="ide-minimap-slider"></div>
+            </div>
+          </div>
+
+          <!-- Image Viewer (For PNG, JPG, GIF, SVG, WEBP, ICO) -->
+          <div id="ide-image-viewer" class="hidden">
+            <div class="image-viewer-toolbar">
+              <div class="image-viewer-info">
+                <span id="img-viewer-filename">image.png</span>
+                <span class="img-badge" id="img-viewer-dimensions">0 × 0 px</span>
+                <span class="img-badge" id="img-viewer-size">0 KB</span>
+              </div>
+              <div class="image-viewer-controls">
+                <button class="img-ctrl-btn" id="img-btn-zoom-out" title="Zoom Out (-)">−</button>
+                <span id="img-zoom-level">100%</span>
+                <button class="img-ctrl-btn" id="img-btn-zoom-in" title="Zoom In (+)">+</button>
+                <button class="img-ctrl-btn" id="img-btn-reset-zoom" title="Reset (100%)">1:1</button>
+                <button class="img-ctrl-btn" id="img-btn-fit-zoom" title="Fit to Window">Fit</button>
+              </div>
+            </div>
+            <div class="image-viewer-canvas-wrap" id="image-viewer-canvas-wrap">
+              <div class="image-canvas-checkerboard">
+                <img id="img-viewer-element" src="" alt="Image Preview" draggable="false" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Diff Mode View (Alternative overlay when inspecting diffs) -->
+          <div id="ide-diff-viewport" class="hidden">
+            <div id="ide-diff-header-bar">
+              <span id="ide-diff-title">Diff Comparison</span>
+              <button class="ide-small-btn" id="ide-btn-close-diff">Back to Editor</button>
+            </div>
+            <div id="ide-diff-body"></div>
+          </div>
+        </div>
+
+        <!-- ── Collapsible Bottom Panel ──────────────── -->
+        <div id="ide-bottom-panel">
+          <div id="ide-panel-tabs-bar">
+            <div class="ide-panel-tabs-left">
+              <button class="ide-bot-tab" data-tab="problems" id="tab-bot-problems">
+                Problems <span class="tab-count-badge" id="bot-problems-count">1</span>
+              </button>
+              <button class="ide-bot-tab" data-tab="output" id="tab-bot-output">Output</button>
+              <button class="ide-bot-tab" data-tab="debug" id="tab-bot-debug">Debug Console</button>
+              <button class="ide-bot-tab active" data-tab="terminal" id="tab-bot-terminal">Terminal</button>
+              <button class="ide-bot-tab" data-tab="ports" id="tab-bot-ports">Ports</button>
+            </div>
+            <div class="ide-panel-tabs-right">
+              <!-- Terminal Specific Controls (Screenshot 160536) -->
+              <div id="panel-controls-terminal" class="tab-specific-controls">
+                <div class="ide-term-selector-pill" id="ide-term-active-pill">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <span id="ide-term-selector-title">powershell</span>
+                </div>
+                <button class="ide-icon-btn" id="ide-btn-new-term" title="New Terminal (+)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px"><polyline points="6 9 12 15 18 9"/></svg></button>
+                <button class="ide-icon-btn" id="ide-btn-split-term" title="Split Terminal"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg></button>
+                <button class="ide-icon-btn" id="ide-btn-clear-term" title="Kill Terminal (Trash)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+                <button class="ide-icon-btn" id="ide-btn-more-term" title="More Actions..."><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg></button>
+              </div>
+
+              <!-- Filter Input for Problems and Debug Console -->
+              <div id="panel-controls-filter" class="tab-specific-controls hidden">
+                <div class="panel-filter-box">
+                  <input type="text" id="panel-filter-input" placeholder="Filter (e.g. text, !exclude, \escaped)..." />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </div>
+              </div>
+
+              <div class="panel-window-controls">
+                <button class="ide-icon-btn" id="ide-btn-toggle-panel-size" title="Maximize/Restore Panel"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg></button>
+                <button class="ide-icon-btn" id="ide-btn-close-panel" title="Close Panel"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Content: Terminal (Screenshot 160536 & 160602) -->
+          <div class="ide-bot-content-pane active" id="bot-pane-terminal">
+            <div class="ide-term-body-layout">
+              <div class="ide-term-main-area">
+                <div id="ide-terminal-output">
+                  <div class="term-line prompt-history"><span class="term-gutter-circle">○</span><span class="term-prompt-txt" id="term-initial-prompt">PS C:\Users\meier\Documents\FreeAI&gt;</span> <span class="term-cmd-val"></span></div>
+                </div>
+                <div id="ide-terminal-input-row">
+                  <span class="term-gutter-circle active">○</span>
+                  <span class="term-prompt-label" id="ide-term-prompt-prefix">PS C:\Users\meier\Documents\FreeAI&gt;</span>
+                  <input type="text" id="ide-terminal-cmd-input" placeholder="" autocomplete="off" spellcheck="false" />
+                </div>
+              </div>
+              <!-- Terminal Sessions Sidebar (Matching Screenshot 160602) -->
+              <div class="ide-term-sidebar" id="ide-term-sidebar">
+                <div class="ide-term-session-item active" data-term-id="term-1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <span>powershell</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Content: Problems (Screenshot 160552) -->
+          <div class="ide-bot-content-pane" id="bot-pane-problems">
+            <div class="ide-problems-header-action">
+              <button class="btn-send-agent-problems" id="btn-send-problems-agent">Analyze workspace</button>
+            </div>
+            <div class="ide-problems-tree" id="ide-problems-tree">
+              <div class="ide-empty-hint">Keine Probleme erkannt.</div>
+            </div>
+          </div>
+
+          <!-- Bottom Content: Output -->
+          <div class="ide-bot-content-pane" id="bot-pane-output">
+            <div id="ide-output-log" class="ide-log-box">
+              <div class="term-line">[Info  - 14:00:00] Language server initialized for FreeAI workspace.</div>
+              <div class="term-line" id="bridge-output-status">[Info] Preload and Bridge communication starting...</div>
+            </div>
+          </div>
+
+          <!-- Bottom Content: Debug Console (Screenshot 160547) -->
+          <div class="ide-bot-content-pane" id="bot-pane-debug">
+            <div class="ide-debug-empty-state">
+              <span style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px;">Debug session ready. Type expression or launch configuration.</span>
+            </div>
+          </div>
+
+          <!-- Bottom Content: Ports (Screenshot 160540) -->
+          <div class="ide-bot-content-pane" id="bot-pane-ports">
+            <div class="ports-empty-pane">
+              <div class="ports-info-text">No forwarded ports. Forward a port to access your locally running services over the internet.</div>
+              <button class="btn-forward-port" id="btn-forward-port">Forward a Port</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Right AI Agent Sidebar (FreeAI - Screenshot 1) ── -->
+      <aside id="ide-agent-panel">
+        <div id="ide-agent-header">
+          <div class="ide-agent-title-row">
+            <span class="ide-agent-label">Agent</span>
+            <div class="ide-agent-header-actions">
+              <button class="ide-icon-btn-subtle" id="ide-agent-new-chat-btn" title="New Chat">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="ide-agent-subbrand">FreeAI</div>
+        </div>
+
+        <!-- Chat Stream -->
+        <div id="ide-agent-stream">
+          <!-- Dynamically filled with unified conversation turns & agent steps -->
+        </div>
+
+        <!-- AI Agent Input Box -->
+        <div id="ide-agent-bottom-bar">
+          <div class="ide-prompt-card" id="ide-agent-prompt-card">
+            <div class="image-attachment-tray hidden" id="ide-image-tray"></div>
+            <div class="ide-prompt-textarea-wrapper">
+              <textarea id="ide-agent-prompt-input" rows="2" placeholder="Ask anything, @ to mention, / for actions"></textarea>
+            </div>
+            <div class="ide-prompt-toolbar">
+              <div class="ide-prompt-tools-left">
+                <button class="tool-circle-btn" id="ide-agent-btn-add-context" title="Bild / Dateien anhängen (+)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <div class="model-badge-pill" id="ide-agent-model-badge" title="KI-Modell wechseln">
+                    <span class="model-name">⚡ GPT-5.6 Luna</span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </div>
+              </div>
+              <div class="ide-prompt-tools-right">
+                <button class="send-prompt-btn" id="ide-agent-btn-send" title="Senden (Enter)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </button>
+                <button class="stop-agent-btn hidden" id="ide-agent-btn-stop" title="Agent stoppen">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                  Stop
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="ide-prompt-disclaimer">AI may make mistakes. Double-check all generated code.</div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ── IDE Status Bar ─────────────────────────────── -->
+    <footer id="ide-statusbar">
+      <div class="ide-sb-left">
+        <div class="ide-sb-item" title="Git Branch: main">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><path d="M18 9a9 9 0 0 0-9 9"/></svg>
+          <span>main</span>
+        </div>
+        <div class="ide-sb-item" title="No errors or warnings">
+          <span style="font-size:11px;">⮾ 0</span>
+          <span style="font-size:11px;margin-left:4px;">⚠ 0</span>
+        </div>
+        <div class="ide-sb-item" id="ide-bridge-status" title="Kortex Bridge Status">
+          <span id="ide-bridge-status-label">⚡ Bridge: starting...</span>
+        </div>
+      </div>
+
+      <div class="ide-sb-right">
+        <div class="ide-sb-item" id="sb-cursor-pos">Ln 1, Col 1</div>
+        <div class="ide-sb-item" id="sb-indent">Spaces: 2</div>
+        <div class="ide-sb-item" id="sb-encoding">UTF-8</div>
+        <div class="ide-sb-item" id="sb-eol">LF</div>
+        <div class="ide-sb-item" id="sb-language">JavaScript</div>
+        <div class="ide-sb-item" id="sb-settings" title="Antigravity - Settings">Antigravity - Settings</div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ── Interactive Question Modal ──────────────────── -->
+  <div id="question-modal-overlay" class="question-overlay hidden">
+    <div class="question-card">
+      <div class="question-header">
+        <span class="q-counter-badge" id="q-modal-counter">Frage an dich</span>
+      </div>
+      <div class="question-body">
+        <h2 class="q-title" id="q-modal-title">Welche Technologie soll genutzt werden?</h2>
+        <p class="q-subtitle">Eine Antwort auswählen</p>
+        <div class="q-options-container" id="q-modal-options"></div>
+      </div>
+      <div class="question-footer">
+        <button class="btn-q-dismiss" id="btn-q-dismiss">Verwerfen</button>
+        <button class="btn-q-submit" id="btn-q-submit">Weiter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Project Picker Dropdown ─────────────────────── -->
+  <div id="project-picker-modal" class="dropdown-overlay hidden">
+    <div class="dropdown-card" id="project-picker-card">
+      <div class="dropdown-search-row">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="project-search-input" placeholder="Search..." autocomplete="off" />
+      </div>
+      <div class="dropdown-items-scroll" id="project-dropdown-list"></div>
+      <div class="dropdown-bottom-actions">
+        <div class="dropdown-action-row" id="act-new-project">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+          <span>New Project</span>
+        </div>
+        <div class="dropdown-action-row" id="act-no-project">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2 2z"/></svg>
+          <span>No Project</span>
+          <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ChatGPT Login / Webview Overlay Drawer ─────── -->
+  <div id="chatgpt-drawer-overlay" class="drawer-overlay hidden">
+    <div class="drawer-card">
+      <div class="drawer-header">
+        <div class="drawer-title">
+          <span class="dot-green"></span>
+          <span>ChatGPT Web Backend (Login & Authentifizierung)</span>
+        </div>
+        <button class="icon-btn-subtle" id="btn-close-chatgpt-drawer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="drawer-info-bar">
+        <span>💡 Melde dich hier einmalig bei ChatGPT an. Sobald du eingeloggt bist, schließe dieses Overlay — Kortex steuert ChatGPT danach 100% im Hintergrund!</span>
+      </div>
+      <div class="drawer-body">
+        <div class="drawer-placeholder">ChatGPT BrowserView Overlay aktiv...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Conversation Context Menu (3-Punkte Popover) ── -->
+  <div id="conv-context-menu" class="context-menu-popover hidden">
+    <div class="ctx-menu-item" id="ctx-action-pin">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.435 9.565l-6.9-6.9a1.5 1.5 0 00-2.12 0L9.16 5.92c-.36.36-.6.82-.68 1.32l-.4 2.4-3.5 3.5a1 1 0 000 1.42l3.78 3.78-5.08 5.08a1 1 0 001.42 1.42l5.08-5.08 3.78 3.78a1 1 0 001.42 0l3.5-3.5 2.4-.4c.5-.08.96-.32 1.32-.68l3.25-3.25a1.5 1.5 0 000-2.12z"/></svg>
+      <span id="ctx-pin-label">Anheften</span>
+    </div>
+    <div class="ctx-menu-item" id="ctx-action-rename">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      <span>Umbenennen</span>
+    </div>
+    <div class="ctx-menu-divider"></div>
+    <div class="ctx-menu-item danger" id="ctx-action-delete">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+      <span>Löschen</span>
+    </div>
+  </div>
+
+  <!-- ── Terminal Context Menu (3-Punkte Popover) ── -->
+  <div id="term-context-menu" class="context-menu-popover hidden">
+    <div class="ctx-menu-item" id="term-action-new">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Neue PowerShell erstellen</span>
+    </div>
+    <div class="ctx-menu-item" id="term-action-clear">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      <span>Ausgabe leeren (Clear)</span>
+    </div>
+    <div class="ctx-menu-divider"></div>
+    <div class="ctx-menu-item danger" id="term-action-delete">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <span>PowerShell schließen / löschen</span>
+    </div>
+  </div>
+
+  <!-- ── Rename Modal Dialog ── -->
+  <div id="rename-modal-overlay" class="dropdown-overlay hidden">
+    <div class="rename-modal-card">
+      <div class="rename-modal-title">Chat umbenennen</div>
+      <input type="text" id="rename-input" class="rename-text-input" placeholder="Neuer Name für den Chat..." autocomplete="off" />
+      <div class="rename-modal-footer">
+        <button class="btn-q-dismiss" id="btn-rename-cancel">Abbrechen</button>
+        <button class="btn-q-submit" id="btn-rename-save">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+  <script src="index.js"></script>
+</body>
+</html>
