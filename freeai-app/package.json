@@ -5,6 +5,7 @@
   "description": "Kortex - Autonomous Next-Gen AI Coding Studio",
   "main": "main.js",
   "scripts": {
+    "test": "node --test test/*.test.js",
     "start": "electron .",
     "dev": "electron . --dev",
     "package": "electron-packager . \"Kortex IDE\" --platform=win32 --arch=x64 --out=dist --icon=assets/icon.ico --ignore=\"^/dist\" --ignore=\"^/dist-installer\" --overwrite",

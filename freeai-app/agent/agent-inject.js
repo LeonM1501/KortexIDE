@@ -1,5 +1,5 @@
 /**
- * Kortex Agent Inject Script v7
+ * Kortex Agent Inject Script v8
  * - Robust ProseMirror & React DOM prompt injector with multi-layer verification
  * - 7s submission watchdog: auto-resends prompt if ChatGPT fails to start generating
  * - Exact single-tool parsing from start of response
@@ -9,6 +9,8 @@
   'use strict';
 
   const bridge = window.__freeaiBridge;
+  const toolParser = window.__kortexToolCallParser;
+  if (!toolParser) throw new Error('Kortex tool-call parser was not injected.');
   function emit(type, payload) {
     try { bridge && bridge.sendEvent({ type, payload, ts: Date.now() }); } catch {}
   }
@@ -27,6 +29,9 @@
   const _prevLoopTimer = window.__kortexLoopTimer;
   const _prevResolve = window.__kortexToolResolve;
   const _prevTimer = window.__kortexToolTimer;
+  const _pendingToolResults = Array.isArray(window.__kortexPendingToolResults)
+    ? window.__kortexPendingToolResults
+    : [];
 
   // ── State ─────────────────────────────────────────────
   let AGENT_STATE = _prevState || {
@@ -55,6 +60,7 @@
   window.__kortexLoopTimer = loopTimer;
   window.__kortexToolResolve = _toolResultResolve;
   window.__kortexToolTimer = _toolResultTimer;
+  window.__kortexPendingToolResults = _pendingToolResults;
   window.__kortexAgentInjected = true;
 
   function _syncLoopTimer(t) { loopTimer = t; window.__kortexLoopTimer = t; }
@@ -265,111 +271,6 @@
     return isStreaming() || getAssistantTurns().length > initialCount;
   }
 
-  // ── Tool Call Parser ──────────────────────────────────
-  function parseToolCall(turnEl) {
-    if (!turnEl) return null;
-    const text = turnEl.innerText || turnEl.textContent || '';
-
-    // Strategy 1: DOM code elements (pre, code, monospace containers)
-    const codeEls = turnEl.querySelectorAll('pre, code, div[class*="font-mono"], div[class*="code"]');
-    for (const el of codeEls) {
-      const txt = el.innerText || el.textContent || '';
-      const result = tryParse(txt);
-      if (result) return result;
-    }
-
-    // Strategy 2: Code blocks in text
-    const blockMatch = text.match(/`{1,3}(?:tool_call|json)?\s*([\s\S]*?)\s*`{0,3}/i);
-    if (blockMatch) {
-      const r = tryParse(blockMatch[1]);
-      if (r) return r;
-    }
-
-    // Strategy 3: Full text scanning
-    return tryParse(text);
-  }
-
-  function tryParse(str) {
-    if (!str) return null;
-    let cleaned = str
-      .replace(/^(?:tool_call|json)\s*/i, '')
-      .replace(/^copy\s*code\s*/i, '')
-      .replace(/`+$/g, '')
-      .trim();
-
-    // 1. Markdown code block extraction (scan from START to get FIRST tool)
-    const codeBlocks = Array.from(str.matchAll(/`{1,3}(?:json|tool_call)?\s*([\s\S]*?)\s*`{0,3}/gi));
-    for (let i = 0; i < codeBlocks.length; i++) {
-      const blockContent = codeBlocks[i][1].trim();
-      const s = blockContent.indexOf('{');
-      const e = blockContent.lastIndexOf('}');
-      if (s !== -1 && e > s) {
-        const cand = blockContent.substring(s, e + 1);
-        try {
-          const obj = JSON.parse(cand);
-          if (obj && (obj.tool || obj.action || obj.name)) return normalize(obj);
-        } catch {}
-      }
-    }
-
-    // 2. Scan string for valid JSON objects from start to end (first tool)
-    const toolKeywords = Array.from(cleaned.matchAll(/"(?:tool|action|name)"\s*:\s*"([^"]+)"/gi));
-    for (let i = 0; i < toolKeywords.length; i++) {
-      const match = toolKeywords[i];
-      const matchIdx = match.index;
-      const s = cleaned.lastIndexOf('{', matchIdx);
-      if (s === -1) continue;
-
-      let depth = 0;
-      let e = -1;
-      let inString = false;
-      let escape = false;
-      for (let j = s; j < cleaned.length; j++) {
-        const char = cleaned[j];
-        if (escape) { escape = false; continue; }
-        if (char === '\\') { escape = true; continue; }
-        if (char === '"') { inString = !inString; continue; }
-        if (!inString) {
-          if (char === '{') depth++;
-          else if (char === '}') {
-            depth--;
-            if (depth === 0) { e = j; break; }
-          }
-        }
-      }
-
-      if (e > s) {
-        const candidate = cleaned.substring(s, e + 1);
-        try {
-          const obj = JSON.parse(candidate);
-          if (obj && (obj.tool || obj.action || obj.name)) return normalize(obj);
-        } catch {}
-        try {
-          const obj = JSON.parse(candidate.replace(/\\/g, '/'));
-          if (obj && (obj.tool || obj.action || obj.name)) return normalize(obj);
-        } catch {}
-      }
-    }
-
-    return null;
-  }
-
-  function normalize(obj) {
-    const RESERVED = new Set(['tool', 'action', 'name', 'parameters', 'args', 'params']);
-    const baseTool = obj.tool || obj.action || obj.name;
-    let parameters = obj.parameters || obj.args || obj.params || {};
-
-    if (Object.keys(parameters).length === 0) {
-      const lifted = {};
-      for (const key of Object.keys(obj)) {
-        if (!RESERVED.has(key)) lifted[key] = obj[key];
-      }
-      if (Object.keys(lifted).length > 0) parameters = lifted;
-    }
-
-    return { tool: baseTool, parameters };
-  }
-
   // ── Stable Response Watcher with Auto-Resend Watchdog ──
   async function waitForAssistantResponseStable() {
     const expectedCount = AGENT_STATE.awaitingAssistantCount;
@@ -476,7 +377,7 @@
     const thought = extractThought(fullRaw);
     if (thought) emit('agent:thought', { thought, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
 
-    const toolCall = parseToolCall(turn);
+    const toolCall = toolParser.parseToolCall(turn);
 
     // If pure conversation (greetings, general chat, or question without tools)
     if (AGENT_STATE.conversationOnly || (!toolCall && AGENT_STATE.step === 1 && cleanText)) {
@@ -567,11 +468,21 @@
       if (_toolResultTimer) { clearTimeout(_toolResultTimer); _toolResultTimer = null; }
       if (window.__kortexToolTimer) { clearTimeout(window.__kortexToolTimer); window.__kortexToolTimer = null; }
       resolve(result);
+      return true;
     }
+    if (AGENT_STATE.running) {
+      _pendingToolResults.splice(0, _pendingToolResults.length, result);
+      return true;
+    }
+    return false;
   };
 
   function waitForToolResult(ms) {
     return new Promise(resolve => {
+      if (_pendingToolResults.length) {
+        resolve(_pendingToolResults.shift());
+        return;
+      }
       if (_toolResultResolve) _toolResultResolve(null);
       _toolResultResolve = resolve;
       window.__kortexToolResolve = resolve;
@@ -718,5 +629,5 @@ ${task}
     emit('agent:stopped', {});
   };
 
-  console.log('⚡ Kortex Agent Inject Script v7 initialisiert.');
+  console.log('⚡ Kortex Agent Inject Script v8 initialisiert.');
 })();

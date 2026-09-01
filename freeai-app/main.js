@@ -265,8 +265,9 @@ function layoutViews() {
 
 function injectAgentScript() {
   if (!chatView || chatView.webContents.isDestroyed()) return Promise.resolve(false);
+  const parserScript = fs.readFileSync(path.join(__dirname, 'agent', 'tool-call-parser.js'), 'utf8');
   const agentScript = fs.readFileSync(path.join(__dirname, 'agent', 'agent-inject.js'), 'utf8');
-  return chatView.webContents.executeJavaScript(agentScript)
+  return chatView.webContents.executeJavaScript(`${parserScript}\n${agentScript}`)
     .then(() => {
       chatViewReady = true;
       // Fire all queued tasks in order. A single overwritten pending promise
@@ -794,9 +795,16 @@ ipcMain.on('chatgpt:tool-result', async (_, { result }) => {
     // serializing them again in the agent produced escaped JSON such as
     // {\"success\":true}, which made the next model step unreliable.
     const jsValue = typeof result === 'string' ? result : (result ?? null);
-    await chatView.webContents.executeJavaScript(
-      `if (window.__freeaiToolResult) { window.__freeaiToolResult(${JSON.stringify(jsValue)}); }`
+    const delivered = await chatView.webContents.executeJavaScript(
+      `Boolean(window.__freeaiToolResult && window.__freeaiToolResult(${JSON.stringify(jsValue)}))`
     );
+    if (!delivered && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('agent:event', {
+        type: 'agent:error',
+        payload: { message: 'Tool-Ergebnis konnte nicht an ChatGPT zurückgegeben werden.' },
+        ts: Date.now()
+      });
+    }
   } catch (e) {
     console.error('Tool result inject error:', e.message);
   }

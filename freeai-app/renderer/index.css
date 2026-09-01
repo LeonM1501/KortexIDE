@@ -2352,6 +2352,8 @@ html, body {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .ide-bot-tab {
@@ -2397,12 +2399,14 @@ html, body {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: 0 0 auto;
 }
 
 .tab-specific-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  height: 28px;
 }
 
 .ide-term-selector-pill {
@@ -2417,7 +2421,41 @@ html, body {
   padding: 2px 8px;
   border-radius: 4px;
   margin-right: 4px;
-  cursor: pointer;
+  height: 26px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ide-terminal-toolbar-button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  color: #9b9b9b;
+}
+
+.ide-terminal-toolbar-button svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.ide-terminal-toolbar-button:focus-visible {
+  outline: 1px solid #6b9bd2;
+  outline-offset: -2px;
+}
+
+@media (max-width: 1120px) {
+  #ide-term-selector-title {
+    display: none;
+  }
+
+  .ide-term-selector-pill {
+    width: 26px;
+    justify-content: center;
+    padding: 0;
+    margin-right: 2px;
+  }
 }
 
 .panel-filter-box {
