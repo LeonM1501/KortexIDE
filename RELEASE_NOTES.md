@@ -1,6 +1,6 @@
 # Kortex IDE v1.0.0
 
-Initiales Release von Kortex IDE – einer Desktop-Entwicklungsumgebung mit integrierter KI-Agenten-Steuerung für lokale Workspaces.
+Release von Kortex IDE – einer Desktop-Entwicklungsumgebung mit integrierter KI-Agenten-Steuerung für lokale Workspaces.
 
 ---
 
@@ -8,7 +8,13 @@ Initiales Release von Kortex IDE – einer Desktop-Entwicklungsumgebung mit inte
 
 ### 1. KI-Agent und Workspace-Integration
 * Direkte Anbindung an ChatGPT im Hintergrund zur automatisierten Bearbeitung von Aufgaben.
+* Intelligentes Intent-Routing: Direkte Text-Antworten auf Begrüßungen und allgemeine Fragen ohne unnötige Dateisystem-Analysen.
+* Angehefteter Aufgabenplan (Pinned Plan): Der Fortschrittsbalken und die Aufgabenliste bleiben über dem Chat-Verlauf fixiert.
+* Schreibgeschützte Aufgaben-Checkliste: Schritte werden ausschließlich autonom durch die KI über step_done abgehakt.
+* Strikter Einzel-Schritt-Ablauf: Genau 1 Gedanken-Satz (Lautes Denken) und 1 JSON-Tool-Befehl pro Antwort.
+* Auto-Resend Watchdog: Automatische Wiederholung bei stockenden Antworten oder Verbindungsabbrüchen.
 * Dateisystem-Tools:
+  * `list_files`: Live-Verifikation der Projektstruktur vor Dateioperationen.
   * `read_file` und `write_file`: Lesen und Erstellen von Dateien im Projektordner.
   * `edit_file`: Gezielte Änderungen und Ersetzungen in bestehendem Code.
   * `run_command`: Ausführen von Befehlen und Skripten im Terminal.
@@ -38,6 +44,7 @@ Initiales Release von Kortex IDE – einer Desktop-Entwicklungsumgebung mit inte
 ### 4. Benutzeroberfläche
 * Einheitliche dunkle Scrollbars im gesamten Programm.
 * Verwaltung von Projekten und Konversationen (Anheften, Umbenennen, Löschen).
+* Automatische Rücksetzung des Stop-Buttons bei neuem oder gelöschtem Chat.
 * Zwei Arbeitsbereiche: Kortex Studio (Fokus auf Konversation) und Kortex IDE (Editor und Dateibaum).
 
 ---

@@ -216,7 +216,13 @@ function createBackgroundChatView() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('chatgpt-navigated', url);
     }
-    setTimeout(injectAgentScript, 1500);
+    // Avoid killing a running agent: only re-inject if agent is idle (see agent-inject.js hot-patch guard)
+    setTimeout(async () => {
+      try {
+        const running = await chatView.webContents.executeJavaScript('Boolean(window.__kortexAgentState && window.__kortexAgentState.running)').catch(()=>false);
+        if (!running) await injectAgentScript();
+      } catch { await injectAgentScript().catch(()=>{}); }
+    }, 1500);
     setTimeout(() => checkChatGPTAuth(false), 2000);
   });
 
@@ -224,7 +230,12 @@ function createBackgroundChatView() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('chatgpt-navigated', url);
     }
-    setTimeout(injectAgentScript, 1000);
+    setTimeout(async () => {
+      try {
+        const running = await chatView.webContents.executeJavaScript('Boolean(window.__kortexAgentState && window.__kortexAgentState.running)').catch(()=>false);
+        if (!running) await injectAgentScript();
+      } catch { await injectAgentScript().catch(()=>{}); }
+    }, 1000);
     setTimeout(() => checkChatGPTAuth(false), 1500);
   });
 

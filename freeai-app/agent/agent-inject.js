@@ -5,7 +5,7 @@
  * - Exact single-tool parsing from start of response
  * - Reliable tool result handshake with immediate turn progression
  */
-(function () {
+ (function () {
   'use strict';
 
   const bridge = window.__freeaiBridge;
@@ -13,8 +13,23 @@
     try { bridge && bridge.sendEvent({ type, payload, ts: Date.now() }); } catch {}
   }
 
+  // ── Idempotent guard: preserve running agent across SPA navigations (chatgpt.com uses pushState) ──
+  // Re-injecting while an agent run is active previously reset AGENT_STATE.running=false and
+  // overwrote window.__freeaiToolResult, causing the pending tool-result handshake to hang forever ("Plugin antwortet nicht").
+  if (window.__kortexAgentInjected && window.__kortexAgentState && window.__kortexAgentState.running) {
+    console.log('⚡ Kortex Agent re-inject skipped — agent still running, preserving state');
+    // Ensure bridge reference stays fresh even on hot re-inject
+    try { window.__freeaiBridge = window.__freeaiBridge || bridge; } catch {}
+    return;
+  }
+  // If already injected but idle, preserve timers/resolvers and just refresh functions below
+  const _prevState = window.__kortexAgentState;
+  const _prevLoopTimer = window.__kortexLoopTimer;
+  const _prevResolve = window.__kortexToolResolve;
+  const _prevTimer = window.__kortexToolTimer;
+
   // ── State ─────────────────────────────────────────────
-  let AGENT_STATE = {
+  let AGENT_STATE = _prevState || {
     running: false,
     workspace: '',
     task: '',
@@ -31,9 +46,18 @@
     conversationOnly: false
   };
 
-  let loopTimer = null;
-  let _toolResultResolve = null;
-  let _toolResultTimer = null;
+  let loopTimer = _prevLoopTimer || null;
+  let _toolResultResolve = _prevResolve || null;
+  let _toolResultTimer = _prevTimer || null;
+
+  // Expose state on window so future re-injects can preserve it
+  window.__kortexAgentState = AGENT_STATE;
+  window.__kortexLoopTimer = loopTimer;
+  window.__kortexToolResolve = _toolResultResolve;
+  window.__kortexToolTimer = _toolResultTimer;
+  window.__kortexAgentInjected = true;
+
+  function _syncLoopTimer(t) { loopTimer = t; window.__kortexLoopTimer = t; }
 
   // ── DOM Helpers ───────────────────────────────────────
   function getInput() {
@@ -438,7 +462,7 @@
     if (response.error || response.timeout) {
       const reason = response.error ? 'ChatGPT meldet eine unterbrochene Verbindung' : 'Antwort hat zu lange pausiert (Timeout)';
       if (await retryCurrentPrompt(reason, retryAttempt)) {
-        loopTimer = setTimeout(() => runLoopStable(retryAttempt + 1), 600);
+        _syncLoopTimer(setTimeout(() => runLoopStable(retryAttempt + 1), 600));
       } else {
         emit('agent:error', { message: `${reason}. Der Agent wurde angehalten.` });
         AGENT_STATE.running = false;
@@ -489,7 +513,7 @@
         await submitPrompt('[KORTEX IDE SYSTEM] Bitte führe den nächsten Schritt als JSON-Tool-Befehl aus oder beende mit task_completed.');
       }
       AGENT_STATE.step++;
-      loopTimer = setTimeout(() => runLoopStable(0), 500);
+      _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
       return;
     }
 
@@ -504,7 +528,16 @@
       if (!AGENT_STATE.running || userAnswer === null) return;
       await submitPrompt(`[TOOL RESULT for ask_question]\nAntwort des Benutzers: ${JSON.stringify(userAnswer)}\nFahre direkt mit dem nächsten Schritt fort.`);
       AGENT_STATE.step++;
-      loopTimer = setTimeout(() => runLoopStable(0), 500);
+      _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
+      return;
+    }
+
+    // ── Enforce Schritt 1 = list_files für Analyse-Aufgaben ──
+    if (AGENT_STATE.step === 1 && toolCall.tool !== 'list_files' && /analys/i.test(AGENT_STATE.task || '')) {
+      emit('agent:status', { message: `Korrektur: Schritt 1 muss list_files sein — leite um (statt ${toolCall.tool}).`, level: 'warning' });
+      await submitPrompt(`[KORTEX IDE SYSTEM-KORREKTUR] FEHLER: Dein Schritt 1 war { "tool": "${toolCall.tool}" } — aber bei "Analysiere das Projekt" ist Schritt 1 ZWINGEND list_files!\nFühre JETZT korrekt aus (1 Satz + 1 JSON):\n\`\`\`json\n{ "tool": "list_files", "parameters": { "maxDepth": 5 } }\n\`\`\``);
+      AGENT_STATE.step++;
+      _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
       return;
     }
 
@@ -521,18 +554,18 @@
 
     await submitPrompt(`[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen. Führe nun genau den nächsten EINZELNEN Schritt aus (1 Satz lautes Denken + genau 1 JSON-Tool-Block, oder schließe mit task_completed ab).`);
     AGENT_STATE.step++;
-    loopTimer = setTimeout(() => runLoopStable(0), 500);
+    _syncLoopTimer(setTimeout(() => runLoopStable(0), 500));
   }
 
-  // ── Tool Result Handshake ─────────────────────────────
+  // ── Tool Result Handshake (window-persisted so re-inject does not lose pending resolver) ──
   window.__freeaiToolResult = function (result) {
-    if (_toolResultResolve) {
-      const resolve = _toolResultResolve;
+    const resolver = _toolResultResolve || window.__kortexToolResolve;
+    if (resolver) {
+      const resolve = resolver;
       _toolResultResolve = null;
-      if (_toolResultTimer) {
-        clearTimeout(_toolResultTimer);
-        _toolResultTimer = null;
-      }
+      window.__kortexToolResolve = null;
+      if (_toolResultTimer) { clearTimeout(_toolResultTimer); _toolResultTimer = null; }
+      if (window.__kortexToolTimer) { clearTimeout(window.__kortexToolTimer); window.__kortexToolTimer = null; }
       resolve(result);
     }
   };
@@ -541,13 +574,18 @@
     return new Promise(resolve => {
       if (_toolResultResolve) _toolResultResolve(null);
       _toolResultResolve = resolve;
+      window.__kortexToolResolve = resolve;
+      if (_toolResultTimer) clearTimeout(_toolResultTimer);
       _toolResultTimer = setTimeout(() => {
-        if (_toolResultResolve === resolve) {
+        if ((_toolResultResolve === resolve) || (window.__kortexToolResolve === resolve)) {
           _toolResultResolve = null;
+          window.__kortexToolResolve = null;
           _toolResultTimer = null;
+          window.__kortexToolTimer = null;
           resolve({ __freeaiTimeout: true, success: false, error: 'Tool-Ergebnis Timeout.' });
         }
       }, ms);
+      window.__kortexToolTimer = _toolResultTimer;
     });
   }
 
@@ -565,6 +603,7 @@
   // ── Public API ────────────────────────────────────────
   window.__freeaiStartAgent = function ({ task, workspace, projectSnapshot }) {
     if (loopTimer) clearTimeout(loopTimer);
+    if (window.__kortexLoopTimer) { try { clearTimeout(window.__kortexLoopTimer); } catch {} }
     const isConv = isConversationalTask(task);
 
     AGENT_STATE = {
@@ -576,6 +615,8 @@
       startTime: Date.now(),
       conversationOnly: isConv
     };
+    window.__kortexAgentState = AGENT_STATE;
+    window.__kortexLoopTimer = loopTimer;
     emit('agent:started', { task, workspace });
 
     let prompt = '';
@@ -623,41 +664,54 @@ Du bearbeitest Entwicklungs- und Code-Aufgaben im lokalen Projekt des Nutzers vo
 - { "tool": "ask_question", "parameters": { "question": "...", "options": [...] } }
 - { "tool": "task_completed", "parameters": { "summary": "..." } }
 
+📌 ZWINGENDER ARBEITSABLAUF — IMMER EINHALTEN:
+- SCHRITT 1 IST IMMER list_files (maxDepth 5): Bevor du IRGENDEINE Datei liest/schreibst, verifiziere LIVE die vollständige Dateiliste. Das Snapshot unten ist nur Momentaufnahme — der list_files-Call ist Pflicht!
+- ERST AB SCHRITT 2: Gezielt read_file für relevante Dateien (z.B. nach list_files).
+- VERBOT: Niemals Schritt 1 mit read_file/write_file/edit_file beginnen. Bei "Analysiere das Projekt" / "Analyisere" / "Projekt analysieren" ist Schritt 1 ZWINGEND list_files, danach create_plan + read_file der Hauptdateien.
+- Beispiel korrekter Start für "Analysiere das Projekt":
+  Lautes Denken: "Starte mit vollständiger Projekt-Exploration..."
+  \`\`\`json
+  { "tool": "list_files", "parameters": { "maxDepth": 5 } }
+  \`\`\`
+
 PROJEKTORDNER: ${normalizedPath}${snapshotBlock}
 
 AUFGABE DES BENUTZERS:
 ${task}
 
-➡️ Starte jetzt mit dem ersten Schritt (nur 1 Gedankensatz + genau 1 JSON-Block).`;
+➡️ Starte jetzt mit dem ersten Schritt (nur 1 Gedankensatz + genau 1 JSON-Block). Denke daran: Schritt 1 = list_files!`;
     }
 
     submitPrompt(prompt).then((sent) => {
       if (!sent) {
         AGENT_STATE.running = false;
+        window.__kortexAgentState.running = false;
         emit('agent:error', { message: 'Die Anfrage konnte nicht an ChatGPT übermittelt werden.' });
         return;
       }
-      loopTimer = setTimeout(() => runLoopStable(0), 600);
+      _syncLoopTimer(setTimeout(() => runLoopStable(0), 600));
     }).catch((error) => {
       AGENT_STATE.running = false;
+      window.__kortexAgentState.running = false;
       emit('agent:error', { message: `Senden fehlgeschlagen: ${error.message || error}` });
     });
   };
 
   window.__freeaiStopAgent = function () {
     AGENT_STATE.running = false;
+    if (window.__kortexAgentState) window.__kortexAgentState.running = false;
     if (loopTimer) {
       clearTimeout(loopTimer);
       loopTimer = null;
     }
-    if (_toolResultResolve) {
-      const resolve = _toolResultResolve;
+    if (window.__kortexLoopTimer) { try { clearTimeout(window.__kortexLoopTimer); } catch {} window.__kortexLoopTimer = null; }
+    const resolver = _toolResultResolve || window.__kortexToolResolve;
+    if (resolver) {
       _toolResultResolve = null;
-      if (_toolResultTimer) {
-        clearTimeout(_toolResultTimer);
-        _toolResultTimer = null;
-      }
-      resolve(null);
+      window.__kortexToolResolve = null;
+      if (_toolResultTimer) { clearTimeout(_toolResultTimer); _toolResultTimer = null; }
+      if (window.__kortexToolTimer) { clearTimeout(window.__kortexToolTimer); window.__kortexToolTimer = null; }
+      resolver(null);
     }
     const stopBtn = getStopBtn();
     if (stopBtn) stopBtn.click();
