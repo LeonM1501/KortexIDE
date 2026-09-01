@@ -546,6 +546,16 @@ function selectProject(proj) {
 }
 
 function selectSession(session) {
+  if (APP_STATE.isAgentRunning && APP_STATE.activeSession?.id !== session.id) {
+    try { window.freeai.stopAgent(); } catch (e) {}
+    APP_STATE.isAgentRunning = false;
+    if (APP_STATE.agentTimerInterval) {
+      clearInterval(APP_STATE.agentTimerInterval);
+      APP_STATE.agentTimerInterval = null;
+    }
+    setAgentRunningUI(false);
+  }
+
   APP_STATE.activeSession = session;
   APP_STATE.currentAssistantEl = null;
   APP_STATE.currentAssistantTurn = null;
@@ -564,6 +574,7 @@ function selectSession(session) {
   document.getElementById('view-conversation').classList.remove('hidden');
 
   renderConversationTurns(session);
+  renderIdeAgentStream(session);
   renderSidebarProjects();
   updateDiffUI(session.diffEntries || []);
 
@@ -574,15 +585,51 @@ function selectSession(session) {
 }
 
 function startNewConversation() {
+  if (APP_STATE.isAgentRunning) {
+    try { window.freeai.stopAgent(); } catch (e) {}
+    APP_STATE.isAgentRunning = false;
+  }
+  if (APP_STATE.agentTimerInterval) {
+    clearInterval(APP_STATE.agentTimerInterval);
+    APP_STATE.agentTimerInterval = null;
+  }
+  if (APP_STATE.currentThoughtBlock) {
+    APP_STATE.currentThoughtBlock = null;
+  }
+
+  setAgentRunningUI(false);
+
+  const dotKortex = document.getElementById('chatgpt-status-dot');
+  const labelKortex = document.getElementById('chatgpt-status-label');
+  const dotIde = document.getElementById('ide-chatgpt-status-dot');
+  const labelIde = document.getElementById('ide-chatgpt-status-label');
+  if (dotKortex) dotKortex.className = 'status-indicator-dot';
+  if (labelKortex) labelKortex.textContent = 'ChatGPT Connected';
+  if (dotIde) dotIde.className = 'status-indicator-dot';
+  if (labelIde) labelIde.textContent = 'ChatGPT Connected';
+
   APP_STATE.activeSession = null;
   APP_STATE.currentAssistantEl = null;
   APP_STATE.currentAssistantTurn = null;
   document.getElementById('bc-session').textContent = 'New Conversation';
   document.getElementById('view-conversation').classList.add('hidden');
   document.getElementById('view-empty-state').classList.remove('hidden');
-  document.getElementById('conversation-stream').innerHTML = '';
-  document.getElementById('prompt-input-hero').value = '';
-  document.getElementById('prompt-input-hero').focus();
+  
+  const convStream = document.getElementById('conversation-stream');
+  if (convStream) convStream.innerHTML = '';
+  const ideStream = document.getElementById('ide-agent-stream');
+  if (ideStream) ideStream.innerHTML = '';
+
+  const heroInput = document.getElementById('prompt-input-hero');
+  if (heroInput) {
+    heroInput.value = '';
+    heroInput.focus();
+  }
+  const bottomInput = document.getElementById('prompt-input-bottom');
+  if (bottomInput) bottomInput.value = '';
+  const ideInput = document.getElementById('ide-agent-prompt-input');
+  if (ideInput) ideInput.value = '';
+
   window.freeai.newChat();
   renderSidebarProjects();
 }

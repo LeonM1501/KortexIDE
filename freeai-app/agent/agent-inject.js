@@ -1,9 +1,9 @@
 /**
- * Kortex Agent Inject Script v5
- * - React-compatible submitPrompt (native value setter)
- * - Robust tool parser: accepts "name" key + flat params
- * - create_plan / step_done tools for task checklists
- * - Strict system prompt: no unsolicited changes, mandatory planning
+ * Kortex Agent Inject Script v6
+ * - Intelligent task routing: direct answers for greetings & general questions without unnecessary file reads
+ * - Robust tool parser: handles malformed backticks, <pre><code> DOM blocks, and flat/nested JSON params
+ * - Declared tool handshake with watchdog auto-retry on connection stalls
+ * - Clean stop & reset lifecycle
  */
 (function () {
   'use strict';
@@ -22,15 +22,18 @@
     maxSteps: 250,
     pollMs: 400,
     responseTimeoutMs: 180000,
-    stallTimeoutMs: 45000,
+    stallTimeoutMs: 15000,
     retryLimit: 2,
     startTime: 0,
     lastPrompt: '',
     awaitingAssistantCount: 0,
     conversationOnly: false
   };
+
   let loopTimer = null;
   let lastStreamedText = '';
+  let _toolResultResolve = null;
+  let _toolResultTimer = null;
 
   // ── DOM Helpers ───────────────────────────────────────
   function getInput() {
@@ -80,8 +83,6 @@
   }
 
   function hasErrorOrInterruption(turn) {
-    // Generic ChatGPT surfaces contain normal actions such as "Regenerate".
-    // Only concrete error text is allowed to trigger an automatic retry.
     const errorPattern = /Verbindung unterbrochen|There was an error generating|There was an error|Network error|Fehler bei der Generierung|Generation stopped/i;
     if (errorPattern.test(getTurnText(turn))) return true;
     return Array.from(document.querySelectorAll('[role="alert"]'))
@@ -90,11 +91,6 @@
 
   function isStreaming() {
     return Boolean(getStopBtn() || Array.from(document.querySelectorAll('.result-streaming, [data-is-streaming="true"], [aria-busy="true"]')).some(isVisible));
-  }
-
-  function getLastAssistantTurn() {
-    const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
-    return turns.length ? turns[turns.length - 1] : null;
   }
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -125,7 +121,7 @@
 
     // Strip trailing braces, unclosed code fences, and trailing JSON/tool_call keywords
     text = text.replace(/[\}\]]\s*$/, '');
-    text = text.replace(/```[a-zA-Z0-9_\-]*\s*$/, '');
+    text = text.replace(/`+\s*$/, '');
     text = text.replace(/(?:^|\n|\s+)(?:json|tool_call)\s*$/i, '');
 
     const trimmed = text.trim();
@@ -217,30 +213,35 @@
     if (!turnEl) return null;
     const text = turnEl.innerText || turnEl.textContent || '';
 
-    // Strategy 1: code blocks
-    const blockMatch = text.match(/```(?:tool_call|json)?\s*([\s\S]*?)\s*```/i);
-    if (blockMatch) {
-      const r = tryParse(blockMatch[1]);
-      if (r) return r;
-    }
-
-    // Strategy 2: DOM code elements
-    const codeEls = turnEl.querySelectorAll('pre, code, div[class*="font-mono"]');
+    // Strategy 1: DOM code elements (pre, code, monospace containers)
+    const codeEls = turnEl.querySelectorAll('pre, code, div[class*="font-mono"], div[class*="code"]');
     for (const el of codeEls) {
       const txt = el.innerText || el.textContent || '';
       const result = tryParse(txt);
       if (result) return result;
     }
 
+    // Strategy 2: Code blocks in text
+    const blockMatch = text.match(/`{1,3}(?:tool_call|json)?\s*([\s\S]*?)\s*`{0,3}/i);
+    if (blockMatch) {
+      const r = tryParse(blockMatch[1]);
+      if (r) return r;
+    }
+
+    // Strategy 3: Full text scanning
     return tryParse(text);
   }
 
   function tryParse(str) {
     if (!str) return null;
-    let cleaned = str.replace(/^(?:tool_call|json)\s*/i, '').replace(/^copy\s*code\s*/i, '').trim();
+    let cleaned = str
+      .replace(/^(?:tool_call|json)\s*/i, '')
+      .replace(/^copy\s*code\s*/i, '')
+      .replace(/`+$/g, '')
+      .trim();
 
-    // 1. If wrapped in Markdown code block ```json ... ``` or ```tool_call ... ```
-    const codeBlocks = Array.from(str.matchAll(/```(?:json|tool_call)?\s*([\s\S]*?)\s*```/gi));
+    // 1. Markdown code block extraction
+    const codeBlocks = Array.from(str.matchAll(/`{1,3}(?:json|tool_call)?\s*([\s\S]*?)\s*`{0,3}/gi));
     for (let i = codeBlocks.length - 1; i >= 0; i--) {
       const blockContent = codeBlocks[i][1].trim();
       const s = blockContent.indexOf('{');
@@ -261,8 +262,7 @@
       const matchIdx = match.index;
       const s = cleaned.lastIndexOf('{', matchIdx);
       if (s === -1) continue;
-      
-      // Find matching closing brace
+
       let depth = 0;
       let e = -1;
       let inString = false;
@@ -313,161 +313,7 @@
     return { tool: baseTool, parameters };
   }
 
-  // ── Agent Loop ────────────────────────────────────────
-  async function runLoop() {
-    if (!AGENT_STATE.running) return;
-    if (AGENT_STATE.step > AGENT_STATE.maxSteps) {
-      emit('agent:error', { message: 'Max steps reached' });
-      AGENT_STATE.running = false;
-      return;
-    }
-
-    emit('agent:step', { step: AGENT_STATE.step, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
-
-    await sleep(600);
-    let lastProgressTime = Date.now();
-    let lastSeenText = '';
-    let retriedThisTurn = false;
-
-    while (isStreaming()) {
-      if (!AGENT_STATE.running) return;
-      const turn = getLastAssistantTurn();
-      const rawText = turn ? (turn.innerText || turn.textContent || '') : '';
-
-      if (rawText !== lastSeenText) {
-        lastSeenText = rawText;
-        lastProgressTime = Date.now();
-      }
-
-      // Check for connection interruption or 10s stall
-      const hasError = hasErrorOrInterruption();
-      const stalledFor10s = (Date.now() - lastProgressTime) > 10000;
-
-      if ((hasError || stalledFor10s) && AGENT_STATE.lastPrompt && !retriedThisTurn) {
-        retriedThisTurn = true;
-        console.warn('⚡ Kortex Watchdog: Disconnect or 10s stall detected. Aborting and resending...');
-        emit('agent:text-chunk', { text: `*(⚠️ Verbindung unterbrochen / Timeout — sende Anfrage nach 10s Pause automatisch erneut...)*`, isComplete: false });
-        const stopBtn = getStopBtn();
-        if (stopBtn) stopBtn.click();
-        await sleep(1500);
-        await submitPrompt(AGENT_STATE.lastPrompt);
-        lastProgressTime = Date.now();
-        lastSeenText = '';
-        await sleep(1000);
-        continue;
-      }
-
-      if (turn) {
-        const clean = extractCleanText(rawText);
-        const thought = extractThought(rawText);
-
-        if (thought) emit('agent:thought', { thought, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
-        if (clean && clean !== lastStreamedText) {
-          emit('agent:text-chunk', { text: clean, isComplete: false });
-          lastStreamedText = clean;
-        }
-      }
-      await sleep(AGENT_STATE.pollMs);
-    }
-    await sleep(800);
-
-    // Post-stream check for error banner
-    if (hasErrorOrInterruption() && AGENT_STATE.lastPrompt && !retriedThisTurn) {
-      console.warn('⚡ Kortex Watchdog: Post-stream error detected. Aborting and resending...');
-      const stopBtn = getStopBtn();
-      if (stopBtn) stopBtn.click();
-      await sleep(1500);
-      await submitPrompt(AGENT_STATE.lastPrompt);
-      loopTimer = setTimeout(runLoop, 1500);
-      return;
-    }
-
-    const turn = getLastAssistantTurn();
-    const fullRaw = turn ? (turn.innerText || turn.textContent || '') : '';
-    const cleanText = extractCleanText(fullRaw);
-    const thought = extractThought(fullRaw);
-
-    if (thought) emit('agent:thought', { thought, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
-    if (cleanText) emit('agent:text-chunk', { text: cleanText, isComplete: true });
-
-    const toolCall = parseToolCall(turn);
-
-    if (toolCall && toolCall.tool === 'task_completed') {
-      const summary = (cleanText.length > 50) ? cleanText : (toolCall.parameters?.summary || cleanText || 'Aufgabe erfolgreich abgeschlossen!');
-      emit('agent:completed', { summary });
-      AGENT_STATE.running = false;
-      return;
-    }
-
-    if (!toolCall) {
-      // Check if ChatGPT is asking for files or mentioning a file it wants to inspect
-      const mentionedFileMatch = cleanText.match(/(?:schick|lese|öffne|prüf|analysier|zeig|send|brauche).*?([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)/i);
-      if (mentionedFileMatch && mentionedFileMatch[1] && !mentionedFileMatch[1].startsWith('http') && !mentionedFileMatch[1].endsWith('.com')) {
-        const targetPath = mentionedFileMatch[1].replace(/^[./\\]+/, '').trim();
-        const autoReminder = `[KORTEX IDE SYSTEM] Du hast vollen Lesezugriff auf das Projekt und musst mich nicht danach fragen. Bitte lies "${targetPath}" direkt selbst über:\n\`\`\`json\n{ "tool": "read_file", "parameters": { "path": "${targetPath}" } }\n\`\`\``;
-        await submitPrompt(autoReminder);
-        AGENT_STATE.step++;
-        loopTimer = setTimeout(runLoop, 2000);
-        return;
-      }
-
-      // If it looks like a final answer (contains analysis / response and didn't ask for more files)
-      if (AGENT_STATE.step > 1 && cleanText.length > 50 && !/schick mir|bitte senden|kannst du mir/i.test(cleanText)) {
-        emit('agent:completed', { summary: cleanText });
-        AGENT_STATE.running = false;
-        return;
-      }
-
-      const reminder = `[KORTEX IDE SYSTEM] Bitte fahre autonom fort und antworte mit einem JSON-Aktionsblock.\nFormat: { "tool": "read_file" | "create_plan" | "write_file" | "edit_file" | "run_command" | "task_completed", "parameters": { ... } }`;
-      await submitPrompt(reminder);
-      AGENT_STATE.step++;
-      loopTimer = setTimeout(runLoop, 2000);
-      return;
-    }
-
-    if (toolCall.tool === 'ask_question') {
-      emit('agent:ask-question', {
-        question: toolCall.parameters.question || 'Entscheidung erforderlich',
-        options: toolCall.parameters.options || [],
-        step: AGENT_STATE.step
-      });
-
-      const userAnswer = await waitForToolResult(600000);
-      if (!AGENT_STATE.running) return;
-
-      if (userAnswer) {
-        const resultPrompt = `[TOOL RESULT for ask_question]\nAntwort des Benutzers: "${userAnswer}"\nFahre nun direkt mit dem nächsten Schritt als JSON-Befehl fort.`;
-        await submitPrompt(resultPrompt);
-        AGENT_STATE.step++;
-      }
-
-      if (AGENT_STATE.running) loopTimer = setTimeout(runLoop, AGENT_STATE.pollMs);
-      return;
-    }
-
-    // All other tools (including create_plan, step_done)
-    emit('agent:tool-call', {
-      tool: toolCall.tool,
-      parameters: toolCall.parameters,
-      step: AGENT_STATE.step,
-      elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000)
-    });
-
-    const result = await waitForToolResult(60000);
-    if (!AGENT_STATE.running) return;
-
-    if (result) {
-      const resultPrompt = `[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen.\nFühre jetzt direkt den NÄCHSTEN Schritt aus.\nErinnerung: Während der Tool-Schritte KEINE langen Texte an den Nutzer schreiben — nur 1 kurzer Gedankensatz + JSON-Befehl! Erst bei task_completed die finale Antwort liefern.`;
-      await submitPrompt(resultPrompt);
-      AGENT_STATE.step++;
-    }
-
-    if (AGENT_STATE.running) loopTimer = setTimeout(runLoop, AGENT_STATE.pollMs);
-  }
-
-  // ── Tool Result Handshake ─────────────────────────────
-  // Stable response state machine. It waits for a new assistant turn before
-  // parsing anything, so a completed previous turn can never be executed twice.
+  // ── Stable Response Watcher ───────────────────────────
   async function waitForAssistantResponseStable() {
     const expectedCount = AGENT_STATE.awaitingAssistantCount;
     const startedAt = Date.now();
@@ -498,7 +344,10 @@
 
         if (hasErrorOrInterruption(turn)) return { turn, error: true };
         if (isStreaming()) {
-          if (Date.now() - lastProgressAt > AGENT_STATE.stallTimeoutMs) return { turn, timeout: true };
+          // Stall watchdog: If no new token received for stallTimeoutMs (15s)
+          if (Date.now() - lastProgressAt > AGENT_STATE.stallTimeoutMs) {
+            return { turn, timeout: true };
+          }
           await sleep(AGENT_STATE.pollMs);
           continue;
         }
@@ -520,15 +369,16 @@
   async function retryCurrentPrompt(reason, attempt) {
     if (attempt >= AGENT_STATE.retryLimit || !AGENT_STATE.lastPrompt) return false;
     emit('agent:status', {
-      message: `${reason} — der aktuelle Schritt wird automatisch erneut gesendet (${attempt + 1}/${AGENT_STATE.retryLimit}).`,
+      message: `${reason} — versuche aktuellen Schritt automatisch erneut (${attempt + 1}/${AGENT_STATE.retryLimit}).`,
       level: 'warning'
     });
     const stopBtn = getStopBtn();
     if (stopBtn) stopBtn.click();
-    await sleep(900);
+    await sleep(1000);
     return submitPrompt(AGENT_STATE.lastPrompt);
   }
 
+  // ── Unified ReAct Agent Loop ──────────────────────────
   async function runLoopStable(retryAttempt = 0) {
     if (!AGENT_STATE.running) return;
     if (AGENT_STATE.step > AGENT_STATE.maxSteps) {
@@ -542,11 +392,11 @@
     if (!AGENT_STATE.running || !response) return;
 
     if (response.error || response.timeout) {
-      const reason = response.error ? 'ChatGPT meldet eine unterbrochene Antwort' : 'ChatGPT antwortet zu lange nicht';
+      const reason = response.error ? 'ChatGPT meldet eine unterbrochene Verbindung' : 'Antwort hat zu lange pausiert (Timeout)';
       if (await retryCurrentPrompt(reason, retryAttempt)) {
-        loopTimer = setTimeout(() => runLoopStable(retryAttempt + 1), 500);
+        loopTimer = setTimeout(() => runLoopStable(retryAttempt + 1), 600);
       } else {
-        emit('agent:error', { message: `${reason}. Der Agent wurde angehalten, damit kein Schritt doppelt ausgeführt wird.` });
+        emit('agent:error', { message: `${reason}. Der Agent wurde angehalten.` });
         AGENT_STATE.running = false;
       }
       return;
@@ -559,6 +409,15 @@
     if (thought) emit('agent:thought', { thought, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
 
     const toolCall = parseToolCall(turn);
+
+    // If pure conversation (greetings, general chat, or question without tools)
+    if (AGENT_STATE.conversationOnly || (!toolCall && AGENT_STATE.step === 1 && cleanText)) {
+      if (cleanText) emit('agent:text-chunk', { text: cleanText, isComplete: true });
+      emit('agent:completed', { summary: cleanText || fullRaw });
+      AGENT_STATE.running = false;
+      return;
+    }
+
     if (cleanText && toolCall && toolCall.tool !== 'task_completed') {
       emit('agent:thought', { thought: cleanText, elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000) });
     } else if (cleanText) {
@@ -573,63 +432,63 @@
     }
 
     if (!toolCall) {
-      if (AGENT_STATE.conversationOnly && cleanText) {
-        emit('agent:completed', { summary: cleanText });
-        AGENT_STATE.running = false;
-        return;
-      }
-
+      // Check if ChatGPT mentions a file it needs
       const mentionedFileMatch = cleanText.match(/(?:schick|lese|öffne|prüf|analysier|zeig|send|brauche).*?([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)/i);
       if (mentionedFileMatch && mentionedFileMatch[1] && !mentionedFileMatch[1].startsWith('http') && !mentionedFileMatch[1].endsWith('.com')) {
         const targetPath = mentionedFileMatch[1].replace(/^[./\\]+/, '').trim();
-        await submitPrompt(`[KORTEX IDE SYSTEM] Lies die Datei direkt über einen JSON-Tool-Call. Frage den Nutzer nicht nach Dateien.\n{ "tool": "read_file", "parameters": { "path": ${JSON.stringify(targetPath)} } }`);
-      } else if (!(AGENT_STATE.step > 1 && cleanText.length > 50 && !/schick mir|bitte senden|kannst du mir/i.test(cleanText))) {
-        await submitPrompt('[KORTEX IDE SYSTEM] Fahre autonom fort und antworte mit genau einem JSON-Aktionsblock. Nutze read_file, write_file, edit_file, run_command oder task_completed.');
-      } else {
+        await submitPrompt(`[KORTEX IDE SYSTEM] Du kannst die Datei direkt selbst lesen. Rufe folgenden Befehl auf:\n\`\`\`json\n{ "tool": "read_file", "parameters": { "path": ${JSON.stringify(targetPath)} } }\n\`\`\``);
+      } else if (AGENT_STATE.step > 1 && cleanText.length > 30 && !/schick mir|bitte senden|kannst du mir/i.test(cleanText)) {
         emit('agent:completed', { summary: cleanText });
         AGENT_STATE.running = false;
         return;
+      } else {
+        await submitPrompt('[KORTEX IDE SYSTEM] Bitte führe den nächsten Schritt als JSON-Tool-Befehl aus oder beende mit task_completed.');
       }
       AGENT_STATE.step++;
       loopTimer = setTimeout(() => runLoopStable(0), 500);
       return;
     }
 
+    // Interactive user question
     if (toolCall.tool === 'ask_question') {
       emit('agent:ask-question', {
-        question: toolCall.parameters.question || 'Entscheidung erforderlich',
-        options: toolCall.parameters.options || [],
+        question: toolCall.parameters?.question || 'Entscheidung erforderlich',
+        options: toolCall.parameters?.options || [],
         step: AGENT_STATE.step
       });
       const userAnswer = await waitForToolResult(600000);
       if (!AGENT_STATE.running || userAnswer === null) return;
-      await submitPrompt(`[TOOL RESULT for ask_question]\nAntwort des Benutzers: ${JSON.stringify(userAnswer)}\nFahre direkt mit dem nächsten JSON-Schritt fort.`);
+      await submitPrompt(`[TOOL RESULT for ask_question]\nAntwort des Benutzers: ${JSON.stringify(userAnswer)}\nFahre direkt mit dem nächsten Schritt fort.`);
       AGENT_STATE.step++;
       loopTimer = setTimeout(() => runLoopStable(0), 500);
       return;
     }
 
+    // Execute standard tool
     emit('agent:tool-call', {
       tool: toolCall.tool,
-      parameters: toolCall.parameters,
+      parameters: toolCall.parameters || {},
       step: AGENT_STATE.step,
       elapsedSec: Math.round((Date.now() - AGENT_STATE.startTime) / 1000)
     });
+
     const result = await waitForToolResult(120000);
     if (!AGENT_STATE.running || result === null) return;
-    await submitPrompt(`[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen. Führe direkt den nächsten Schritt aus. Während der Tool-Schritte keine langen Texte schreiben; nutze genau einen JSON-Aktionsblock.`);
+
+    await submitPrompt(`[TOOL RESULT for ${toolCall.tool}]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\nErgebnis empfangen. Führe direkt den nächsten Schritt als JSON-Aktionsblock aus (oder schließe mit task_completed ab).`);
     AGENT_STATE.step++;
     loopTimer = setTimeout(() => runLoopStable(0), 500);
   }
 
-  let _toolResultTimer = null;
-
+  // ── Tool Result Handshake ─────────────────────────────
   window.__freeaiToolResult = function (result) {
     if (_toolResultResolve) {
       const resolve = _toolResultResolve;
       _toolResultResolve = null;
-      clearTimeout(_toolResultTimer);
-      _toolResultTimer = null;
+      if (_toolResultTimer) {
+        clearTimeout(_toolResultTimer);
+        _toolResultTimer = null;
+      }
       resolve(result);
     }
   };
@@ -642,23 +501,30 @@
         if (_toolResultResolve === resolve) {
           _toolResultResolve = null;
           _toolResultTimer = null;
-          resolve({ __freeaiTimeout: true, success: false, error: 'Tool-Ergebnis wurde nicht rechtzeitig empfangen.' });
+          resolve({ __freeaiTimeout: true, success: false, error: 'Tool-Ergebnis Timeout.' });
         }
       }, ms);
     });
   }
 
+  // ── Conversation Intent Detection ─────────────────────
   function isConversationalTask(text) {
     const value = String(text || '').trim().toLowerCase();
     if (!value) return false;
-    if (/^(hi|hey|hello|hallo|moin|servus|guten morgen|guten tag|guten abend|danke|wer bist du|wie geht es dir)\b/.test(value)) return true;
-    const codingIntent = /(erstelle|baue|entwickle|programmi|codi|implement|ändere|aendere|fixe|reparier|behebe|schreib|erstellt|öffne|oeffne|datei|projekt|code|funktion|bug|fehler|terminal|befehl|install|deploy|analys|prüf|pruef|änderung|aenderung|refactor)/i;
-    return !codingIntent.test(value) && value.split(/\s+/).length <= 32;
+    // Common greetings and casual questions
+    if (/^(hi|hallo|hey|hello|servus|moin|guten tag|guten morgen|guten abend|danke|vielen dank|wer bist du|wie gehts|wie geht es dir|was kannst du|hilfe)\b/.test(value)) {
+      return true;
+    }
+    // Check if task involves explicit coding/workspace actions
+    const codingIntent = /(erstelle|baue|entwickle|programmi|codi|implement|ändere|aendere|fixe|reparier|behebe|schreib|öffne|oeffne|datei|projekt|code|funktion|bug|fehler|terminal|befehl|install|deploy|analys|prüf|pruef|änderung|aenderung|refactor|delete|lösche|lese|read)/i;
+    return !codingIntent.test(value) && value.split(/\s+/).length <= 25;
   }
 
   // ── Public API ────────────────────────────────────────
   window.__freeaiStartAgent = function ({ task, workspace, projectSnapshot }) {
     if (loopTimer) clearTimeout(loopTimer);
+    const isConv = isConversationalTask(task);
+
     AGENT_STATE = {
       ...AGENT_STATE,
       running: true,
@@ -666,44 +532,41 @@
       task,
       step: 1,
       startTime: Date.now(),
-      conversationOnly: isConversationalTask(task)
+      conversationOnly: isConv
     };
     lastStreamedText = '';
     emit('agent:started', { task, workspace });
 
-    const normalizedPath = (workspace || '').replace(/\\/g, '/');
-    const snapshotBlock = projectSnapshot
-      ? `\n\n📂 PROJEKTSTRUKTUR:\n\`\`\`\n${projectSnapshot}\n\`\`\``
-      : '\n\n📂 PROJEKTSTRUKTUR: Der Projektordner ist derzeit leer.';
+    let prompt = '';
 
-    const prompt = `Du bist KORTEX — ein hochintelligenter, autonomer Software-Agent in der Kortex IDE.
-Du führst Entwicklungs- und Analyseaufgaben im Projekt des Nutzers vollständig selbstständig durch.
-Du hast vollen Zugriff auf das Projekt über einfache JSON-Befehlsblöcke.
+    if (isConv) {
+      // Clean, direct prompt for conversation / questions
+      prompt = `Der Nutzer schreibt folgende Nachricht in der Kortex IDE:
+"${task}"
 
-📌 WICHTIGE ARBEITSWEISE & KOMMUNIKATIONSREGEL:
-1. AUTONOMIE: Frage den Nutzer NIEMALS nach Dateien! Du kannst jede Datei im Projekt selbst lesen. Rufe einfach:
+📌 REGEL FÜR DIESE ANFRAGE:
+- Antworte direkt, freundlich und präzise auf die Frage des Nutzers.
+- Da dies eine normale Frage/Begrüßung ist, führe KEINE Tool-Aufrufe, KEINE Dateisuchen und KEINE Datei-Analysen aus.`;
+    } else {
+      // Full Autonomous Coding Agent Prompt
+      const normalizedPath = (workspace || '').replace(/\\/g, '/');
+      const snapshotBlock = projectSnapshot
+        ? `\n\n📂 PROJEKTSTRUKTUR:\n\`\`\`\n${projectSnapshot}\n\`\`\``
+        : '\n\n📂 PROJEKTSTRUKTUR: Der Projektordner ist derzeit leer.';
+
+      prompt = `Du bist KORTEX — der autonome Software-Agent in der Kortex IDE.
+Du bearbeitest Entwicklungs- und Code-Aufgaben im lokalen Projekt des Nutzers vollständig selbstständig über JSON-Tool-Befehle.
+
+📌 WICHTIGE ARBEITSREGELN:
+1. RELEVANZ: Führe Datei-Operationen NUR DANN aus, wenn sie für die konkrete Benutzeraufgabe wirklich erforderlich sind!
+2. AUTONOMIE: Frage den Nutzer niemals nach Dateien, die du per read_file selbst lesen kannst.
+3. WÄHREND DER SCHRITTE: Schreibe vor jedem JSON-Block nur 1 kurzen Gedanken-Satz. Am Ende jedes Schritts genau 1 JSON-Block.
+4. ABSCHLUSS: Wenn alles erledigt ist, gib die vollständige Erklärung und schließe ab mit:
 \`\`\`json
-{ "tool": "read_file", "parameters": { "path": "pfad/zur/datei.js" } }
+{ "tool": "task_completed", "parameters": { "summary": "Zusammenfassung der Änderungen..." } }
 \`\`\`
 
-2. KOMMUNIKATION:
-- Bei einer Begrüßung oder normalen Wissensfrage antworte ganz normal und freundlich. Führe dafür keine Tool-Schleife aus.
-- WÄHREND DER SCHRITTE (Tools ausführen): Schreibe KEINE langen Texte an den Nutzer! Schreibe VOR dem JSON-Block nur 1 kurzen Gedanken-/Analysesatz (z.B. "Prüfe nun bridge-server.js...").
-- ERST WENN DU FERTIG BIST (task_completed): Schreibe deine ausführliche, vollständige Erklärung/Antwort für den Nutzer und schließe am Ende ab mit:
-\`\`\`json
-{ "tool": "task_completed", "parameters": { "summary": "Deine ausführliche Antwort..." } }
-\`\`\`
-
-3. WORKFLOW BEI CODE-ÄNDERUNGEN:
-- Erst Kontext sammeln (per list_files / read_file)
-- Dann Plan erstellen per create_plan:
-\`\`\`json
-{ "tool": "create_plan", "parameters": { "title": "...", "steps": [{"id":1,"title":"Schritt 1"},{"id":2,"title":"Schritt 2"}] } }
-\`\`\`
-- Dann die Schritte mit write_file / edit_file umsetzen und nach jedem Schritt step_done aufrufen.
-- Am Ende mit task_completed abschließen.
-
-4. VERFÜGBARE BEFEHLE (immer exakt EIN JSON-Block am Ende deiner Antwort):
+5. VERFÜGBARE TOOLS:
 - { "tool": "list_files", "parameters": { "maxDepth": 5 } }
 - { "tool": "read_file", "parameters": { "path": "dateiname" } }
 - { "tool": "create_plan", "parameters": { "title": "...", "steps": [...] } }
@@ -720,15 +583,16 @@ PROJEKTORDNER: ${normalizedPath}${snapshotBlock}
 AUFGABE DES BENUTZERS:
 ${task}
 
-➡️ Starte jetzt direkt autonom mit der Analyse bzw. dem ersten Schritt.`;
+➡️ Bearbeite die Aufgabe des Nutzers zielgerichtet.`;
+    }
 
     submitPrompt(prompt).then((sent) => {
       if (!sent) {
         AGENT_STATE.running = false;
-        emit('agent:error', { message: 'Die Aufgabe konnte nicht an ChatGPT gesendet werden.' });
+        emit('agent:error', { message: 'Die Anfrage konnte nicht an ChatGPT übermittelt werden.' });
         return;
       }
-      loopTimer = setTimeout(() => runLoopStable(0), 500);
+      loopTimer = setTimeout(() => runLoopStable(0), 600);
     }).catch((error) => {
       AGENT_STATE.running = false;
       emit('agent:error', { message: `Senden fehlgeschlagen: ${error.message || error}` });
@@ -737,21 +601,23 @@ ${task}
 
   window.__freeaiStopAgent = function () {
     AGENT_STATE.running = false;
-    if (loopTimer) clearTimeout(loopTimer);
+    if (loopTimer) {
+      clearTimeout(loopTimer);
+      loopTimer = null;
+    }
     if (_toolResultResolve) {
       const resolve = _toolResultResolve;
       _toolResultResolve = null;
-      clearTimeout(_toolResultTimer);
-      _toolResultTimer = null;
+      if (_toolResultTimer) {
+        clearTimeout(_toolResultTimer);
+        _toolResultTimer = null;
+      }
       resolve(null);
     }
+    const stopBtn = getStopBtn();
+    if (stopBtn) stopBtn.click();
     emit('agent:stopped', {});
   };
 
-  window.__freeaiInjectPrompt = function (text) {
-    submitPrompt(text);
-  };
-
-  emit('agent:ready', { url: location.href });
-  console.log('⚡ Kortex Agent v5 ready');
+  console.log('⚡ Kortex Agent Inject Script v6 initialisiert.');
 })();
