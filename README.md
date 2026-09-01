@@ -94,41 +94,41 @@ npm run build:installer
 
 ## MACHT. DAMIT. WAS. IHR. WOLLT.
 
-Nehmt den Code.  
-Kopiert den Code.  
-Verändert den Code.  
-Zerlegt den Code.  
-Klebt ihn wieder falsch zusammen.  
-Macht ihn besser.  
-Macht ihn schlimmer.  
-Macht daraus eine App, einen Toaster oder die nächste Weltherrschafts-Software.  
-Veröffentlicht ihn.  
-Verkauft ihn.  
-Verschenkt ihn.  
+Nehmt den Code.<br>
+Kopiert den Code.<br>
+Verändert den Code.<br>
+Zerlegt den Code.<br>
+Klebt ihn wieder falsch zusammen.<br>
+Macht ihn besser.<br>
+Macht ihn schlimmer.<br>
+Macht daraus eine App, einen Toaster oder die nächste Weltherrschafts-Software.<br>
+Veröffentlicht ihn.<br>
+Verkauft ihn.<br>
+Verschenkt ihn.<br>
 Packt ihn auf einen USB-Stick und werft ihn eurem Nachbarn durchs Fenster.
 
-Nennt es Fork.  
-Nennt es Remix.  
-Nennt es Inspiration.  
-Nennt es meinetwegen geklaut.  
+Nennt es Fork.<br>
+Nennt es Remix.<br>
+Nennt es Inspiration.<br>
+Nennt es meinetwegen geklaut.<br>
 **Uns komplett egal.**
 
-Ihr müsst nicht fragen.  
-Ihr müsst nicht betteln.  
-Ihr müsst keine zehnseitige E-Mail schreiben.  
-Ihr müsst uns nicht erwähnen.  
+Ihr müsst nicht fragen.<br>
+Ihr müsst nicht betteln.<br>
+Ihr müsst keine zehnseitige E-Mail schreiben.<br>
+Ihr müsst uns nicht erwähnen.<br>
 Ihr müsst nicht einmal so tun, als wäre das alles eure geniale Idee gewesen.
 
 **Nehmt das Ding einfach und haut ab damit.**
 
-Wenn ihr damit Millionen verdient: stabil.  
-Wenn es euren Rechner sprengt: nicht unser Problem.  
+Wenn ihr damit Millionen verdient: stabil.<br>
+Wenn es euren Rechner sprengt: nicht unser Problem.<br>
 Wenn euer Umbau aussieht wie ein brennender Einkaufswagen: ebenfalls nicht
 unser Problem.
 
-> **DER CODE IST FREI.**  
-> **DER CODE HAT KEINEN BESITZERKOMPLEX.**  
-> **DER CODE BRAUCHT KEINE STREICHELEINHEITEN.**  
+> **DER CODE IST FREI.**<br>
+> **DER CODE HAT KEINEN BESITZERKOMPLEX.**<br>
+> **DER CODE BRAUCHT KEINE STREICHELEINHEITEN.**<br>
 > **DER CODE IST JETZT EUER PROBLEM.**
 
 Viel Spaß. Oder auch nicht. Macht halt.
