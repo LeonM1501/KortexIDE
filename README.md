@@ -41,6 +41,7 @@ KortexIDE/
 │   ├── installer.nsi      # NSIS Setup-Skript für Windows
 │   └── package.json
 ├── RELEASE_NOTES.md       # Release Notes und Changelog
+├── LICENSE                # 0BSD: macht damit, was ihr wollt
 ├── .gitignore
 └── README.md
 ```
@@ -87,4 +88,9 @@ npm run build:installer
 
 ## Lizenz
 
-MIT License
+[0BSD](LICENSE) – macht mit dem Code, was ihr wollt: benutzen, kopieren,
+verändern, veröffentlichen, verkaufen oder in euer eigenes Projekt übernehmen.
+Ihr müsst weder fragen noch uns nennen.
+
+Die Lizenzen von Drittanbieter-Abhängigkeiten und fremden Assets bleiben davon
+unberührt.
