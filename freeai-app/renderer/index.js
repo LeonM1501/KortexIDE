@@ -3541,6 +3541,13 @@ function setupIdeTerminal() {
     if (!sidebar) return;
     sidebar.innerHTML = '';
 
+    // Show sidebar if there are multiple sessions, hide if single session (matching Screenshots 1 & 2 vs 3 & 4)
+    if (TERMINAL_SESSIONS.length > 1) {
+      sidebar.style.display = 'flex';
+    } else {
+      sidebar.style.display = 'none';
+    }
+
     TERMINAL_SESSIONS.forEach(sess => {
       const isActive = (sess.id === ACTIVE_TERMINAL_ID);
       const item = document.createElement('div');
@@ -3664,6 +3671,14 @@ function setupIdeTerminal() {
     showToast('PowerShell', 'PowerShell-Sitzung gelöscht.', 'info', 1800);
   }
 
+  // Focus terminal input on clicking terminal body
+  const botPaneTerminal = document.getElementById('bot-pane-terminal');
+  botPaneTerminal?.addEventListener('click', (e) => {
+    if (!e.target.closest('button') && !e.target.closest('.ide-term-sidebar')) {
+      input.focus();
+    }
+  });
+
   // Initial render
   renderTerminalSidebar();
   switchTerminalSession(ACTIVE_TERMINAL_ID);
@@ -3695,12 +3710,53 @@ function setupIdeTerminal() {
         return;
       }
 
+      // Handle CD commands
+      if (/^cd(\s+.*)?$/i.test(cmd)) {
+        const target = cmd.replace(/^cd\s*/i, '').trim();
+        if (!target) {
+          // cd without args: print current path
+          const outEl = document.createElement('div');
+          outEl.className = 'term-line';
+          outEl.style.paddingLeft = '22px';
+          outEl.textContent = currentSess.cwd;
+          log.appendChild(outEl);
+        } else {
+          try {
+            const cdRes = await window.freeai.executeCmd({ workspacePath: currentSess.cwd, command: `cd "${target}"; (Get-Location).Path` });
+            if (cdRes && cdRes.stdout && cdRes.stdout.trim()) {
+              const newPath = cdRes.stdout.trim().split(/\r?\n/).pop().trim();
+              if (newPath) {
+                currentSess.cwd = newPath;
+                const prefix = document.getElementById('ide-term-prompt-prefix');
+                if (prefix) prefix.textContent = `PS ${newPath}>`;
+              }
+            } else if (cdRes && cdRes.stderr) {
+              const errEl = document.createElement('div');
+              errEl.className = 'term-line error';
+              errEl.style.paddingLeft = '22px';
+              errEl.textContent = cdRes.stderr;
+              log.appendChild(errEl);
+            }
+          } catch (cdErr) {
+            const errEl = document.createElement('div');
+            errEl.className = 'term-line error';
+            errEl.style.paddingLeft = '22px';
+            errEl.textContent = cdErr.message;
+            log.appendChild(errEl);
+          }
+        }
+        log.scrollTop = log.scrollHeight;
+        currentSess.htmlContent = log.innerHTML;
+        return;
+      }
+
       try {
         const res = await window.freeai.executeCmd({ workspacePath: ws, command: cmd });
         if (res && res.stdout) {
           const outEl = document.createElement('div');
           outEl.className = 'term-line';
           outEl.style.paddingLeft = '22px';
+          outEl.style.whiteSpace = 'pre-wrap';
           outEl.textContent = res.stdout;
           log.appendChild(outEl);
         }
@@ -3708,6 +3764,7 @@ function setupIdeTerminal() {
           const errEl = document.createElement('div');
           errEl.className = 'term-line error';
           errEl.style.paddingLeft = '22px';
+          errEl.style.whiteSpace = 'pre-wrap';
           errEl.textContent = res.stderr;
           log.appendChild(errEl);
         }
@@ -3737,7 +3794,19 @@ function setupIdeTerminal() {
     }
   });
 
-  // Top Buttons: New, Split, Kill/Clear, 3-Dots Menu
+  // Top Buttons: Selector Pill, New, Split, Kill/Clear, 3-Dots Menu
+  document.getElementById('ide-term-active-pill')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (TERMINAL_SESSIONS.length > 1) {
+      // Cycle to next session
+      const curIdx = TERMINAL_SESSIONS.findIndex(s => s.id === ACTIVE_TERMINAL_ID);
+      const nextIdx = (curIdx + 1) % TERMINAL_SESSIONS.length;
+      switchTerminalSession(TERMINAL_SESSIONS[nextIdx].id);
+    } else {
+      createNewTerminalSession();
+    }
+  });
+
   document.getElementById('ide-btn-new-term')?.addEventListener('click', () => {
     createNewTerminalSession();
   });
@@ -3758,7 +3827,7 @@ function setupIdeTerminal() {
     e.stopPropagation();
     if (!termCtxMenu) return;
     const isHidden = termCtxMenu.classList.contains('hidden');
-    document.querySelectorAll('.context-menu-popover').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.ide-dropdown-menu').forEach(m => m.classList.add('hidden'));
 
     if (isHidden) {
       const rect = moreBtn.getBoundingClientRect();
@@ -3769,12 +3838,17 @@ function setupIdeTerminal() {
     }
   });
 
-  document.getElementById('term-action-new')?.addEventListener('click', () => {
+  document.getElementById('term-ctx-new')?.addEventListener('click', () => {
     termCtxMenu?.classList.add('hidden');
     createNewTerminalSession();
   });
 
-  document.getElementById('term-action-clear')?.addEventListener('click', () => {
+  document.getElementById('term-ctx-split')?.addEventListener('click', () => {
+    termCtxMenu?.classList.add('hidden');
+    createNewTerminalSession();
+  });
+
+  document.getElementById('term-ctx-clear')?.addEventListener('click', () => {
     termCtxMenu?.classList.add('hidden');
     const log = document.getElementById('ide-terminal-output');
     if (log) log.innerHTML = '';
@@ -3783,7 +3857,7 @@ function setupIdeTerminal() {
     showToast('Terminal', 'Ausgabe geleert.', 'info', 1800);
   });
 
-  document.getElementById('term-action-delete')?.addEventListener('click', () => {
+  document.getElementById('term-ctx-kill')?.addEventListener('click', () => {
     termCtxMenu?.classList.add('hidden');
     closeTerminalSession(ACTIVE_TERMINAL_ID);
   });

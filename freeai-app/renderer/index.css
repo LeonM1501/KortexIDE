@@ -2423,7 +2423,19 @@ html, body {
   margin-right: 4px;
   height: 26px;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.ide-term-selector-pill:hover {
+  background: #333333;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.ide-term-selector-pill svg {
+  flex-shrink: 0;
 }
 
 .ide-terminal-toolbar-button {

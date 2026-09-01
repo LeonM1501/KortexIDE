@@ -51,5 +51,5 @@
     "electron-packager": "^17.1.2"
   },
   "author": "Kortex Intelligence",
-  "license": "0BSD"
+  "license": "MIT"
 }
